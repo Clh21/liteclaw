@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.3 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批和任务接口。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.4 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批和任务接口。服务支持 API Key 访问控制和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -31,6 +31,24 @@ python -m liteclaw
 macOS/Linux 把激活命令改成 `source .venv/bin/activate`，复制配置用 `cp .env.example .env`。也可用 `uvicorn app.main:app --reload` 启动。访问 `http://127.0.0.1:8000/health` 应返回 `status=ok` 与 `database=ready`。
 
 无 API Key 时，把 `.env` 中 `LITECLAW_MODEL_PROVIDER` 改成 `fake`。FakeModel 可稳定展示 calculator 的“模型发出工具调用 → 工具返回观察结果 → 模型形成答案”闭环，也能演示明确要求保存的记忆。它不是通用语言模型。
+
+## 服务鉴权与 Docker 部署（v0.4）
+
+设置 `LITECLAW_SERVER_API_KEY` 后，所有 `/v1` 接口都要求 `Authorization: Bearer <key>` 或 `X-API-Key: <key>`；`/health` 保持公开，供容器健康检查使用。未设置该变量时，本地开发默认关闭服务鉴权。
+
+```powershell
+$headers = @{Authorization='Bearer replace-with-a-long-random-key'}
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://127.0.0.1:8000/v1/sessions -ContentType application/json -Body '{}'
+```
+
+Docker Compose 会强制要求服务密钥，并把数据库保存在命名卷、文件工具工作区映射到仓库的 `workspace` 目录：
+
+```powershell
+$env:LITECLAW_SERVER_API_KEY='replace-with-a-long-random-key'
+docker compose up --build
+```
+
+镜像内使用非 root 用户运行，并预装 Playwright Chromium。可用 `LITECLAW_PORT` 改变宿主机暴露端口；容器内部固定监听 8000。
 
 ## API 示例
 
@@ -126,4 +144,4 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.3 本地验收为主环境 `58 passed`，全新虚拟环境 `57 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界和 v0.2 持久化任务。由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.4 本地验收为主环境 `66 passed`，干净环境 `65 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权和部署文件。由于 Docker Desktop 引擎未启动，只验证了 `docker compose config`，未实际构建镜像；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。

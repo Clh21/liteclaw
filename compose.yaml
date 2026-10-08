@@ -1,0 +1,21 @@
+services:
+  liteclaw:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LITECLAW_HOST: 0.0.0.0
+      LITECLAW_PORT: 8000
+      LITECLAW_DB_PATH: /data/liteclaw.db
+      LITECLAW_WORKSPACE_ROOT: /workspace
+      LITECLAW_SERVER_API_KEY: ${LITECLAW_SERVER_API_KEY:?Set LITECLAW_SERVER_API_KEY}
+    ports:
+      - "${LITECLAW_PORT:-8000}:8000"
+    volumes:
+      - liteclaw-data:/data
+      - ./workspace:/workspace
+
+volumes:
+  liteclaw-data:
