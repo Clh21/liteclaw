@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     recent_message_tokens: int = Field(default=8000, ge=1)
     memory_top_k: int = Field(default=8, ge=1)
     browser_headless: bool = True
+    browser_state_key: str = Field(default="", repr=False)
     require_approval: bool = True
     log_level: str = "INFO"
     mcp_servers_path: Path = Path("mcp_servers.yaml")
