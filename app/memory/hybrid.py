@@ -39,9 +39,15 @@ def cosine(left: list[float], right: list[float]) -> float:
 
 
 class HybridRetriever:
-    def __init__(self, database: Database, embeddings: CachedEmbeddings | None = None):
+    def __init__(
+        self,
+        database: Database,
+        embeddings: CachedEmbeddings | None = None,
+        remote_vector_store=None,
+    ):
         self.database = database
         self.embeddings = embeddings
+        self.remote_vector_store = remote_vector_store
         self.vector_store = SqliteVecStore()
 
     async def search(self, query: str, top_k: int = 8) -> list[dict]:
@@ -50,6 +56,26 @@ class HybridRetriever:
         if self.embeddings is not None:
             try:
                 query_vector = await self.embeddings.embed(query)
+                if self.remote_vector_store and self.remote_vector_store.available:
+                    try:
+                        vector = await self.remote_vector_store.search(
+                            query_vector, self.embeddings.model, top_k * 3
+                        )
+                        records = {
+                            item["id"]: item
+                            for item in await self.database.get_memories_by_ids(
+                                [item["id"] for item in vector]
+                            )
+                        }
+                        vector = [
+                            {**records[item["id"]], "distance": item.get("distance")}
+                            for item in vector
+                            if item["id"] in records
+                        ]
+                    except Exception:  # noqa: BLE001 - fall back to local vectors
+                        vector = []
+                if vector:
+                    return rrf(keyword, vector)[:top_k]
                 candidates = await self.database.all_memories()
                 prepared = [
                     {**row, "embedding": json.loads(row["embedding"])}

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     mcp_servers_path: Path = Path("mcp_servers.yaml")
     embedding_model: str = ""
+    pgvector_url: str = Field(default="", repr=False)
+    pgvector_table: str = "liteclaw_memory_vectors"
     enable_planner: bool = False
     tasks_enabled: bool = True
     task_poll_seconds: float = Field(default=1.0, ge=0.1, le=60)

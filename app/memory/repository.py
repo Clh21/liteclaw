@@ -366,6 +366,18 @@ class Database:
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
+    async def get_memories_by_ids(self, memory_ids: list[str]) -> list[dict]:
+        if not memory_ids:
+            return []
+        placeholders = ",".join("?" for _ in memory_ids)
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                memory_ids,
+            )
+            rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def set_memory_embedding(
         self, memory_id: str, model: str, embedding: list[float]
     ) -> None:
