@@ -1,0 +1,11 @@
+.venv/
+.venv-clean/
+.worktrees/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+data/*
+!data/.gitkeep

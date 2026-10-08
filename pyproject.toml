@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liteclaw"
+version = "0.1.0"
+description = "A lightweight personal AI agent runtime"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi==0.142.4",
+  "uvicorn[standard]==0.54.0",
+  "pydantic==2.13.5",
+  "pydantic-settings==2.15.0",
+  "aiosqlite==0.22.1",
+  "structlog==26.1.0",
+  "httpx==0.28.1",
+  "playwright==1.63.0",
+  "mcp==1.30.0",
+  "jsonschema==4.26.0",
+  "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "ruff==0.16.10"]
+agentscope = ["agentscope==1.0.21", "tqdm==4.67.1"]
+vector = ["sqlite-vec==0.1.9"]
+
+[project.scripts]
+liteclaw = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*", "liteclaw*"]
+
+[tool.setuptools.package-data]
+"app.memory" = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend-exclude = [".venv-clean"]

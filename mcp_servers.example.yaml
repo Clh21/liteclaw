@@ -1,0 +1,6 @@
+mcp_servers:
+  demo:
+    transport: stdio
+    command: .venv/Scripts/python.exe
+    args:
+      - scripts/demo_mcp_server.py
