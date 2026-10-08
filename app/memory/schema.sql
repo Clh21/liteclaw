@@ -86,3 +86,38 @@ CREATE TABLE IF NOT EXISTS planner_runs (
     worker_run_id TEXT,
     worker_session_id TEXT
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE RESTRICT,
+    prompt TEXT NOT NULL,
+    schedule_type TEXT NOT NULL,
+    run_at TEXT,
+    interval_seconds INTEGER,
+    next_run_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    max_retries INTEGER NOT NULL DEFAULT 2,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    claimed_at TEXT,
+    pause_requested INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due
+ON scheduled_tasks(status, next_run_at);
+
+CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+    agent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    status TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    answer TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
+ON scheduled_task_runs(task_id, started_at DESC);
