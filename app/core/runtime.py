@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.context import ContextBuilder
+from app.core.events import RunEventEmitter
 from app.logging import log_event
 from app.memory.repository import Database
 from app.memory.writer import MemoryWriter
@@ -54,17 +55,25 @@ class AgentRuntime:
         self.require_approval = require_approval
 
     async def run(
-        self, session_id: str, user_text: str
+        self,
+        session_id: str,
+        user_text: str,
+        emitter: RunEventEmitter | None = None,
     ) -> AgentRunResult | PendingRunResult:
         if await self.database.get_session(session_id) is None:
             raise KeyError("session_not_found")
         await self.database.append_message(session_id, "user", user_text)
         run_id = await self.database.create_run(session_id)
+        if emitter:
+            emitter.emit("run_started", run_id=run_id, session_id=session_id)
         log_event("run.start", run_id=run_id, session_id=session_id)
-        return await self._loop(session_id, user_text, run_id, [], 1)
+        return await self._loop(session_id, user_text, run_id, [], 1, emitter)
 
     async def resolve_approval(
-        self, approval_id: str, approve: bool
+        self,
+        approval_id: str,
+        approve: bool,
+        emitter: RunEventEmitter | None = None,
     ) -> AgentRunResult | PendingRunResult:
         approval = await self.database.decide_approval(approval_id, approve)
         if approval is None:
@@ -76,7 +85,12 @@ class AgentRuntime:
         trace = run["trace"]
         step = max((item.get("step", 0) for item in trace), default=1)
         pending = await self._drain_calls(
-            session_id, run["id"], trace, step, (approval["tool_call_id"], approve)
+            session_id,
+            run["id"],
+            trace,
+            step,
+            (approval["tool_call_id"], approve),
+            emitter,
         )
         if pending:
             return pending
@@ -85,7 +99,9 @@ class AgentRuntime:
             (item["content"] for item in reversed(history) if item["role"] == "user"),
             "",
         )
-        return await self._loop(session_id, user_text, run["id"], trace, step + 1)
+        return await self._loop(
+            session_id, user_text, run["id"], trace, step + 1, emitter
+        )
 
     async def _loop(
         self,
@@ -94,6 +110,7 @@ class AgentRuntime:
         run_id: str,
         trace: list[dict],
         start_step: int,
+        emitter: RunEventEmitter | None = None,
     ) -> AgentRunResult | PendingRunResult:
         usage = {"input_tokens": 0, "output_tokens": 0}
         try:
@@ -109,6 +126,8 @@ class AgentRuntime:
                 log_event(
                     "model.start", run_id=run_id, session_id=session_id, step=step
                 )
+                if emitter:
+                    emitter.emit("model_started", run_id=run_id, step=step)
                 response = await self.model.complete(
                     context.messages, self.registry.schemas_for_model()
                 )
@@ -119,6 +138,13 @@ class AgentRuntime:
                     step=step,
                     tool_calls=len(response.tool_calls),
                 )
+                if emitter:
+                    emitter.emit(
+                        "model_completed",
+                        run_id=run_id,
+                        step=step,
+                        tool_call_count=len(response.tool_calls),
+                    )
                 if response.usage:
                     usage["input_tokens"] += response.usage.input_tokens
                     usage["output_tokens"] += response.usage.output_tokens
@@ -128,6 +154,14 @@ class AgentRuntime:
                     trace.append({"step": step, "type": "final"})
                     await self.database.finish_run(run_id, "completed", trace)
                     log_event("run.completed", run_id=run_id, session_id=session_id)
+                    if emitter:
+                        emitter.emit(
+                            "final",
+                            run_id=run_id,
+                            session_id=session_id,
+                            answer=answer,
+                            usage=usage,
+                        )
                     try:
                         await self.memory_writer.after_turn(session_id, user_text)
                     except Exception as error:  # noqa: BLE001 - answer is already stored
@@ -143,7 +177,9 @@ class AgentRuntime:
                     response.content,
                     [call.model_dump() for call in response.tool_calls],
                 )
-                pending = await self._drain_calls(session_id, run_id, trace, step)
+                pending = await self._drain_calls(
+                    session_id, run_id, trace, step, emitter=emitter
+                )
                 if pending:
                     return pending
             raise MaxStepsExceeded(f"Agent stopped after {self.max_steps} steps")
@@ -164,6 +200,7 @@ class AgentRuntime:
         trace: list[dict],
         step: int,
         decision: tuple[str, bool] | None = None,
+        emitter: RunEventEmitter | None = None,
     ) -> PendingRunResult | None:
         history = await self.database.get_messages(session_id)
         assistant_index = max(
@@ -201,6 +238,13 @@ class AgentRuntime:
                     session_id=session_id,
                     tool_name=call["name"],
                 )
+                if emitter:
+                    emitter.emit(
+                        "approval_required",
+                        run_id=run_id,
+                        approval_id=approval_id,
+                        tool_name=call["name"],
+                    )
                 return PendingRunResult(
                     run_id, approval_id, call["name"], call["arguments"], trace
                 )
@@ -211,6 +255,13 @@ class AgentRuntime:
                     error="approval_rejected",
                 )
             else:
+                if emitter:
+                    emitter.emit(
+                        "tool_started",
+                        run_id=run_id,
+                        step=step,
+                        tool_name=call["name"],
+                    )
                 result = await self.registry.execute(
                     call["name"],
                     call["arguments"],
@@ -231,6 +282,15 @@ class AgentRuntime:
                 ok=result.ok,
                 elapsed_ms=result.elapsed_ms,
             )
+            if emitter:
+                emitter.emit(
+                    "tool_completed",
+                    run_id=run_id,
+                    step=step,
+                    tool_name=call["name"],
+                    ok=result.ok,
+                    elapsed_ms=result.elapsed_ms,
+                )
             trace.append(
                 {
                     "step": step,

@@ -59,3 +59,14 @@ Invoke-RestMethod http://127.0.0.1:8000/v1/tasks/$($task.id) | ConvertTo-Json -D
 ```
 
 重启服务后再次查询同一任务，任务定义和运行历史仍然存在。若任务调用 shell、覆盖文件或其他高风险工具，详情状态会显示 `waiting_approval`；使用返回的 approval API 批准后，任务继续完成。
+
+## 7. 展示 SSE 实时 Agent 步骤
+
+```powershell
+$body = @{message='calculate (1234*17+8)/3'} | ConvertTo-Json
+curl.exe -N -X POST http://127.0.0.1:8000/v1/chat/stream `
+  -H 'Content-Type: application/json' `
+  -d $body
+```
+
+终端会依次显示 `run_started`、`model_started`、`model_completed`、`tool_started`、`tool_completed`、`final` 和 `done`。把请求换成需要 shell 或覆盖文件的操作，可展示 `approval_required`；该事件不包含危险工具的完整参数。

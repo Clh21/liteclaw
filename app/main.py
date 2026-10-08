@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from app.api.approvals import router as approvals_router
 from app.api.chat import router as chat_router
 from app.api.memory import router as memory_router
 from app.api.sessions import router as sessions_router
+from app.api.streaming import router as streaming_router
 from app.api.tasks import router as tasks_router
 from app.config import Settings
 from app.core.context import ContextBuilder
@@ -138,10 +140,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await scheduler.stop()
+            streaming_tasks = list(application.state.streaming_tasks)
+            if streaming_tasks:
+                _, pending = await asyncio.wait(
+                    streaming_tasks, timeout=settings.task_shutdown_timeout
+                )
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
             await mcp_manager.close()
             await browser.close()
 
-    application = FastAPI(title="LiteClaw", version="0.2.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.3.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -167,6 +178,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.task_repository = task_repository
     application.state.task_service = task_service
     application.state.scheduler = scheduler
+    application.state.streaming_tasks = set()
 
     @application.middleware("http")
     async def request_logging(request, call_next):
@@ -186,6 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(memory_router)
     application.include_router(approvals_router)
     application.include_router(tasks_router)
+    application.include_router(streaming_router)
 
     @application.get("/health")
     async def health(response: Response) -> dict:

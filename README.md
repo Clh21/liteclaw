@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.2 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、记忆、审批和任务接口。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.3 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批和任务接口。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -43,6 +43,21 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8000/v1/memory/search?q=Atlas'
 ```
 
 `POST /v1/chat` 可省略 `session_id`，系统会创建会话。`GET /v1/runs/{run_id}` 返回执行状态、trace 和 tool events。显式记忆使用 `POST /v1/memory`，删除使用 `DELETE /v1/memory/{id}`。
+
+## SSE 实时事件（v0.3）
+
+`POST /v1/chat/stream` 使用和普通 chat 相同的 JSON 请求体，返回 `text/event-stream`。事件按顺序包含 `session`、Agent run、模型步骤、工具步骤、最终回答或审批等待，最后以 `done` 结束。
+
+```powershell
+$body = @{message='calculate (1234*17+8)/3'} | ConvertTo-Json
+curl.exe -N -X POST http://127.0.0.1:8000/v1/chat/stream `
+  -H 'Content-Type: application/json' `
+  -d $body
+```
+
+高风险工具会产生 `approval_required`，随后连接结束，不会持续占用连接等待人工操作。调用原有 approve/reject API 后，可从审批响应或 `GET /v1/runs/{run_id}` 获取恢复结果。流事件不会包含完整工具参数、密码或 token。客户端提前断开不会取消已经开始的 Agent 工作。
+
+当前版本传输真实的 Agent 步骤事件，不伪造 token 增量。模型级 token streaming 需要 OpenAI-compatible 和 AgentScope 适配器提供统一增量接口，将在后续兼容版本实现。
 
 ## 模型配置
 
@@ -111,4 +126,4 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.2 本地验收：主环境 `53 passed`，全新虚拟环境 `52 passed, 1 skipped`（仅缺少可选 sqlite-vec）；Playwright 打开 `https://example.com` 成功；本地 HTTP 服务已验证计算工具闭环、任务到期执行、单次执行约束和服务重启后的任务恢复。由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.3 本地验收为主环境 `58 passed`，全新虚拟环境 `57 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界和 v0.2 持久化任务。由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
