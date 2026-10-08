@@ -7,6 +7,7 @@ from app.api.approvals import router as approvals_router
 from app.api.chat import router as chat_router
 from app.api.memory import router as memory_router
 from app.api.sessions import router as sessions_router
+from app.api.tasks import router as tasks_router
 from app.config import Settings
 from app.core.context import ContextBuilder
 from app.core.planner import Planner
@@ -35,6 +36,10 @@ from app.tools.builtin.file_tools import FileReadTool, FileWriteTool
 from app.tools.builtin.shell import ShellRunTool
 from app.tools.mcp.client import MCPClientManager
 from app.tools.registry import ToolRegistry
+from app.tasks.repository import TaskRepository
+from app.tasks.scheduler import TaskScheduler
+from app.tasks.service import TaskService
+from app.tasks.models import utc_now
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -104,12 +109,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.workspace_root,
         settings.require_approval,
     )
+    task_repository = TaskRepository(database)
+    task_service = TaskService(task_repository, runtime)
+    scheduler = TaskScheduler(
+        task_repository,
+        task_service,
+        settings.tasks_enabled,
+        settings.task_poll_seconds,
+        settings.task_max_concurrency,
+        settings.task_shutdown_timeout,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         configure_logging(settings.log_level)
         await database.initialize()
         await mcp_manager.start(registry)
+        await task_repository.recover_expired(utc_now(), settings.task_lease_seconds)
+        await scheduler.start()
         logger = get_logger(__name__)
         if hasattr(logger, "bind"):
             logger.info("database.ready", path=str(database.path))
@@ -117,9 +134,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info(
                 "database.ready", extra={"fields": {"path": str(database.path)}}
             )
-        yield
-        await mcp_manager.close()
-        await browser.close()
+        try:
+            yield
+        finally:
+            await scheduler.stop()
+            await mcp_manager.close()
+            await browser.close()
 
     application = FastAPI(title="LiteClaw", version="0.1.0", lifespan=lifespan)
     application.state.settings = settings
@@ -144,6 +164,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.embeddings = embeddings
     application.state.browser = browser
     application.state.mcp = mcp_manager
+    application.state.task_repository = task_repository
+    application.state.task_service = task_service
+    application.state.scheduler = scheduler
 
     @application.middleware("http")
     async def request_logging(request, call_next):
@@ -162,6 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(chat_router)
     application.include_router(memory_router)
     application.include_router(approvals_router)
+    application.include_router(tasks_router)
 
     @application.get("/health")
     async def health(response: Response) -> dict:
@@ -171,6 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "database": "ready",
                 "mcp": mcp_manager.status,
                 "embedding": embeddings.stats if embeddings else "disabled",
+                "tasks": scheduler.health(),
             }
         response.status_code = 503
         return {"status": "unavailable", "database": "unavailable"}

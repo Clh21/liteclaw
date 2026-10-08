@@ -112,6 +112,12 @@ class TaskRepository:
                 (now, task_id),
             )
             row = await cursor.fetchone()
+            if row is None:
+                cursor = await connection.execute(
+                    "UPDATE scheduled_tasks SET pause_requested=1,updated_at=? WHERE id=? AND status IN ('running','waiting_approval') RETURNING *",
+                    (now, task_id),
+                )
+                row = await cursor.fetchone()
             await connection.commit()
         return dict(row) if row else None
 
@@ -126,7 +132,7 @@ class TaskRepository:
             scheduled = now
         async with self.database.connection() as connection:
             cursor = await connection.execute(
-                "UPDATE scheduled_tasks SET status='active',next_run_at=?,updated_at=? WHERE id=? AND status='paused' RETURNING *",
+                "UPDATE scheduled_tasks SET status='active',pause_requested=0,next_run_at=?,updated_at=? WHERE id=? AND status='paused' RETURNING *",
                 (_iso(scheduled), _iso(now), task_id),
             )
             row = await cursor.fetchone()

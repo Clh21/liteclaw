@@ -77,3 +77,25 @@ async def test_repository_recovers_expired_running_task():
         await repository.claim_due(utc_now() - timedelta(minutes=9))
         assert await repository.recover_expired(utc_now(), lease_seconds=300) == 1
         assert (await repository.get(task["id"]))["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_pause_running_task_records_pause_request():
+    with tempfile.TemporaryDirectory() as directory:
+        database = Database(Path(directory) / "tasks.db")
+        await database.initialize()
+        session = await database.create_session()
+        repository = TaskRepository(database)
+        task = await repository.create(
+            TaskCreate(
+                name="running",
+                prompt="work",
+                schedule_type="once",
+                run_at=utc_now() - timedelta(seconds=1),
+                session_id=session["id"],
+            )
+        )
+        await repository.claim_due(utc_now())
+        paused = await repository.pause(task["id"])
+        assert paused["status"] == "running"
+        assert paused["pause_requested"] == 1

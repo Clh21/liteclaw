@@ -9,6 +9,7 @@ router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 async def decide(approval_id: str, approve: bool, request: Request, response: Response):
     try:
         result = await request.app.state.runtime.resolve_approval(approval_id, approve)
+        await request.app.state.task_service.complete_after_approval(result)
         planner_result = await request.app.state.planner.resume_worker(result)
     except KeyError as error:
         raise HTTPException(404, detail={"code": str(error)}) from error

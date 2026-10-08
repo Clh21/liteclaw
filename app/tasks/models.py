@@ -15,6 +15,7 @@ class TaskStatus(str, Enum):
     paused = "paused"
     completed = "completed"
     failed = "failed"
+    waiting_approval = "waiting_approval"
 
 
 def utc_now() -> datetime:

@@ -69,7 +69,10 @@ class TaskService:
             answer=result.answer,
             finished=True,
         )
-        if task["schedule_type"] == "interval":
+        current = await self.repository.get(task["id"])
+        if current["pause_requested"]:
+            await self.repository.set_task_state(task["id"], "paused")
+        elif task["schedule_type"] == "interval":
             planned = datetime.fromisoformat(task["next_run_at"])
             next_run = next_interval_time(planned, task["interval_seconds"], utc_now())
             await self.repository.set_task_state(task["id"], "active", next_run)
@@ -89,8 +92,13 @@ class TaskService:
         await self.repository.update_run(
             task_run["id"], "failed", error=message, finished=True
         )
+        current = await self.repository.get(task["id"])
         retries = task["retry_count"] + 1
-        if retryable and retries <= task["max_retries"]:
+        if current["pause_requested"]:
+            await self.repository.set_task_state(
+                task["id"], "paused", retry_count=task["retry_count"], last_error=message
+            )
+        elif retryable and retries <= task["max_retries"]:
             delay = RETRY_DELAYS[min(retries - 1, len(RETRY_DELAYS) - 1)]
             await self.repository.set_task_state(
                 task["id"],

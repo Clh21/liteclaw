@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     mcp_servers_path: Path = Path("mcp_servers.yaml")
     embedding_model: str = ""
     enable_planner: bool = False
+    tasks_enabled: bool = True
+    task_poll_seconds: float = Field(default=1.0, ge=0.1, le=60)
+    task_max_concurrency: int = Field(default=2, ge=1, le=20)
+    task_shutdown_timeout: float = Field(default=15.0, ge=1, le=120)
+    task_lease_seconds: int = Field(default=300, ge=10, le=86400)
 
     @property
     def database_path(self) -> Path:
