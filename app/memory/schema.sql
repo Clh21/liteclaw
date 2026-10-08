@@ -121,3 +121,41 @@ CREATE TABLE IF NOT EXISTS scheduled_task_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
 ON scheduled_task_runs(task_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS eval_cases (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    expected_contains TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    source_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
+    passed INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS eval_results (
+    id TEXT PRIMARY KEY,
+    eval_run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+    case_id TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+    case_name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    expected_contains TEXT,
+    agent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    status TEXT NOT NULL,
+    answer TEXT,
+    error TEXT,
+    elapsed_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(eval_run_id, created_at);

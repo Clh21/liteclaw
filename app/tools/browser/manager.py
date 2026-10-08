@@ -3,6 +3,8 @@ import socket
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from app.tools.browser.state import BrowserStateStore
+
 
 def validate_url(url: str, allow_private: bool = False) -> str:
     parsed = urlsplit(url)
@@ -27,10 +29,19 @@ def validate_url(url: str, allow_private: bool = False) -> str:
 
 
 class BrowserManager:
-    def __init__(self, root: Path, headless: bool = True, allow_private: bool = False):
+    def __init__(
+        self,
+        root: Path,
+        headless: bool = True,
+        allow_private: bool = False,
+        state_store: BrowserStateStore | None = None,
+    ):
         self.root = root
         self.headless = headless
         self.allow_private = allow_private
+        self.state_store = state_store or BrowserStateStore(
+            self.root / "data" / "browser_state", ""
+        )
         self._playwright = None
         self._browser = None
         self._contexts: dict[str, object] = {}
@@ -52,12 +63,32 @@ class BrowserManager:
         await self._ensure_browser()
         page = self._pages.get(session_id)
         if page is None or page.is_closed():
-            context = await self._browser.new_context()
+            state = self.state_store.load(session_id)
+            context = await self._browser.new_context(
+                **({"storage_state": state} if state is not None else {})
+            )
             await context.route("**/*", self._guard_request)
             page = await context.new_page()
             self._contexts[session_id] = context
             self._pages[session_id] = page
         return page
+
+    async def persist(self, session_id: str) -> bool:
+        context = self._contexts.get(session_id)
+        if context is None or not self.state_store.enabled:
+            return False
+        try:
+            self.state_store.save(session_id, await context.storage_state())
+        except Exception:  # noqa: BLE001 - browser shutdown must remain best effort
+            return False
+        return True
+
+    async def reset(self, session_id: str) -> bool:
+        context = self._contexts.pop(session_id, None)
+        self._pages.pop(session_id, None)
+        if context is not None:
+            await context.close()
+        return self.state_store.delete(session_id)
 
     async def _guard_request(self, route):
         try:
@@ -75,8 +106,11 @@ class BrowserManager:
             await route.continue_()
 
     async def close(self):
-        for context in self._contexts.values():
+        for session_id, context in list(self._contexts.items()):
+            await self.persist(session_id)
             await context.close()
+        self._contexts.clear()
+        self._pages.clear()
         if self._browser is not None:
             await self._browser.close()
         if self._playwright is not None:

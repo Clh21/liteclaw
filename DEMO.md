@@ -83,3 +83,17 @@ curl.exe -i -H 'Authorization: Bearer demo-secret' http://127.0.0.1:8000/v1/sess
 $env:LITECLAW_SERVER_API_KEY='demo-secret'
 docker compose up --build
 ```
+
+## 9. 展示浏览器登录态恢复
+
+生成 Fernet 密钥并写入 `.env` 的 `LITECLAW_BROWSER_STATE_KEY`，重启服务。使用同一个 LiteClaw session 完成网站登录后，浏览器工具动作会把 storage state 加密写入磁盘。
+
+```powershell
+Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/v1/browser/sessions/$sessionId/state"
+```
+
+重启 LiteClaw 并继续使用同一 session，Playwright context 会恢复登录态。演示结束后可调用同一路径的 `DELETE` 清除。
+
+## 10. 展示 Eval 和坏案例回流
+
+打开 `http://127.0.0.1:8000/evals`，输入服务 API Key。先通过 API 添加一个 calculator 案例，再在页面点击“运行已启用案例”，观察通过率和运行历史。任意对话结果不符合预期时，调用 `POST /v1/evals/cases/from-run/{run_id}` 将原始用户请求保存为回归案例。

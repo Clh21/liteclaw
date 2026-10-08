@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.4 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批和任务接口。服务支持 API Key 访问控制和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.5 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -49,6 +49,31 @@ docker compose up --build
 ```
 
 镜像内使用非 root 用户运行，并预装 Playwright Chromium。可用 `LITECLAW_PORT` 改变宿主机暴露端口；容器内部固定监听 8000。
+
+## 浏览器登录态持久化（v0.5）
+
+设置 Fernet 密钥后，Playwright cookie 与 local storage 会按 LiteClaw session 加密保存，并在服务重启后恢复。未设置密钥时保持 v0.4 的仅内存行为。
+
+```powershell
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# 把输出写入 .env 的 LITECLAW_BROWSER_STATE_KEY
+```
+
+状态文件位于 `data/browser_state`，只包含密文。`GET /v1/browser/sessions/{session_id}/state` 只返回启用状态、是否存在和更新时间；`DELETE` 同一路径可关闭该会话的 browser context 并清除登录态。密钥遗失后原有状态无法恢复。
+
+## Eval 仪表盘与坏案例回流（v0.5）
+
+访问 `http://127.0.0.1:8000/evals` 可查看案例、运行所有启用案例和比较最近通过率。若配置了服务 API Key，在页面顶部输入；密钥仅保存在当前标签页的 `sessionStorage`。评测使用当前模型和完整 Agent loop，每个案例拥有独立 session，单个错误不会中断其余案例。
+
+```powershell
+$case = Invoke-RestMethod -Headers $headers -Method Post -Uri http://127.0.0.1:8000/v1/evals/cases -ContentType application/json -Body (@{
+  name='calculator regression'; prompt='calculate 2+3'; expected_contains='5'
+} | ConvertTo-Json)
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://127.0.0.1:8000/v1/evals/run -ContentType application/json -Body '{}'
+Invoke-RestMethod -Headers $headers -Method Post -Uri "http://127.0.0.1:8000/v1/evals/cases/from-run/$runId" -ContentType application/json -Body '{"name":"bad case"}'
+```
+
+当前断言是大小写不敏感的文本包含判断。删除案例不会删除已保存的运行快照。
 
 ## API 示例
 
@@ -144,4 +169,4 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.4 本地验收为主环境 `66 passed`，干净环境 `65 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权和部署文件。由于 Docker Desktop 引擎未启动，只验证了 `docker compose config`，未实际构建镜像；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.5 本地验收为主环境 `75 passed`，干净环境 `74 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归和部署文件。Playwright 已实际打开 example.com。由于 Docker Desktop 引擎未启动，只验证 `docker compose config`；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。

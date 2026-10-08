@@ -6,7 +6,9 @@ from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
 from app.api.approvals import router as approvals_router
+from app.api.browser import router as browser_router
 from app.api.chat import router as chat_router
+from app.api.evals import router as evals_router
 from app.api.memory import router as memory_router
 from app.api.sessions import router as sessions_router
 from app.api.streaming import router as streaming_router
@@ -15,6 +17,8 @@ from app.config import Settings
 from app.core.context import ContextBuilder
 from app.core.planner import Planner
 from app.core.runtime import AgentRuntime
+from app.evals.repository import EvalRepository
+from app.evals.service import EvalService
 from app.logging import configure_logging, get_logger, log_event
 from app.memory.embeddings import CachedEmbeddings, OpenAIEmbeddingProvider
 from app.memory.hybrid import HybridRetriever
@@ -31,6 +35,7 @@ from app.tasks.repository import TaskRepository
 from app.tasks.scheduler import TaskScheduler
 from app.tasks.service import TaskService
 from app.tools.browser.manager import BrowserManager
+from app.tools.browser.state import BrowserStateStore
 from app.tools.browser.tools import (
     BrowserClickTool,
     BrowserExtractTool,
@@ -55,7 +60,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry.register(FileReadTool(settings.workspace_root))
     registry.register(FileWriteTool(settings.workspace_root))
     registry.register(ShellRunTool(settings.workspace_root))
-    browser = BrowserManager(settings.workspace_root, settings.browser_headless)
+    browser_state_store = BrowserStateStore(
+        settings.workspace_root / "data" / "browser_state",
+        settings.browser_state_key,
+    )
+    browser = BrowserManager(
+        settings.workspace_root,
+        settings.browser_headless,
+        state_store=browser_state_store,
+    )
     mcp_manager = MCPClientManager(settings.mcp_config_path)
     for tool in (
         BrowserOpenTool,
@@ -115,6 +128,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     task_repository = TaskRepository(database)
     task_service = TaskService(task_repository, runtime)
+    eval_repository = EvalRepository(database)
+    eval_service = EvalService(database, eval_repository, runtime)
     scheduler = TaskScheduler(
         task_repository,
         task_service,
@@ -154,7 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await mcp_manager.close()
             await browser.close()
 
-    application = FastAPI(title="LiteClaw", version="0.4.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.5.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -179,6 +194,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.mcp = mcp_manager
     application.state.task_repository = task_repository
     application.state.task_service = task_service
+    application.state.eval_repository = eval_repository
+    application.state.eval_service = eval_service
     application.state.scheduler = scheduler
     application.state.streaming_tasks = set()
 
@@ -207,11 +224,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     application.include_router(sessions_router)
+    application.include_router(browser_router)
     application.include_router(chat_router)
     application.include_router(memory_router)
     application.include_router(approvals_router)
     application.include_router(tasks_router)
     application.include_router(streaming_router)
+    application.include_router(evals_router)
 
     @application.get("/health")
     async def health(response: Response) -> dict:

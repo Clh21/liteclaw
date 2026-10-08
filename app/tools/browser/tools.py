@@ -32,6 +32,7 @@ class BrowserOpenTool(BaseTool):
         url = validate_url(arguments.url, self.manager.allow_private)
         page = await self.manager.page(session_id(context))
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        await self.manager.persist(session_id(context))
         title = await page.title()
         excerpt = (await page.locator("body").inner_text(timeout=10000))[:20000]
         return ToolResult(
@@ -95,6 +96,7 @@ class BrowserClickTool(BaseTool):
             else page.locator(arguments.selector)
         )
         await locator.click(timeout=30000)
+        await self.manager.persist(session_id(context))
         return ToolResult(ok=True, content=f"Clicked element on {page.url}")
 
 
@@ -122,6 +124,7 @@ class BrowserTypeTool(BaseTool):
             else page.locator(arguments.selector)
         )
         await locator.fill(arguments.value, timeout=30000)
+        await self.manager.persist(session_id(context))
         return ToolResult(ok=True, content="Input filled")
 
 
