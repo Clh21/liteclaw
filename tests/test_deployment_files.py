@@ -32,3 +32,18 @@ def test_dockerignore_excludes_secrets_and_local_state():
     assert ".git" in patterns
     assert ".venv*" in patterns
     assert "data" in patterns
+
+
+def test_pgvector_compose_overlay_is_optional_and_persistent():
+    overlay = yaml.safe_load(
+        (ROOT / "compose.pgvector.yaml").read_text(encoding="utf-8")
+    )
+    postgres = overlay["services"]["postgres"]
+    liteclaw = overlay["services"]["liteclaw"]
+
+    assert postgres["image"] == "pgvector/pgvector:0.8.7-pg17-bookworm"
+    assert "postgres-data:/var/lib/postgresql/data" in postgres["volumes"]
+    assert "pg_isready" in " ".join(postgres["healthcheck"]["test"])
+    assert "postgresql://" in liteclaw["environment"]["LITECLAW_PGVECTOR_URL"]
+    assert "postgres" in liteclaw["depends_on"]
+    assert "postgres-data" in overlay["volumes"]

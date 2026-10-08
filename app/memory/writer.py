@@ -1,7 +1,6 @@
 import json
 import re
 
-import httpx
 from pydantic import BaseModel, Field
 
 from app.logging import log_event
@@ -23,10 +22,12 @@ class MemoryWriter:
         database: Database,
         embeddings: CachedEmbeddings | None = None,
         extractor_model: BaseChatModel | None = None,
+        vector_store=None,
     ):
         self.database = database
         self.embeddings = embeddings
         self.extractor_model = extractor_model
+        self.vector_store = vector_store
         self.summarizer = SessionSummarizer(database, model=extractor_model)
 
     async def after_turn(self, session_id: str, user_text: str) -> None:
@@ -35,8 +36,19 @@ class MemoryWriter:
             target = forget.group(1).strip()
             if target:
                 for memory in await self.database.search_fts(target):
-                    if target.casefold() in memory["content"].casefold():
-                        await self.database.delete_memory(memory["id"])
+                    if (
+                        target.casefold() in memory["content"].casefold()
+                        and await self.database.delete_memory(memory["id"])
+                        and self.vector_store
+                        and self.vector_store.available
+                    ):
+                        try:
+                            await self.vector_store.delete(memory["id"])
+                        except Exception as error:  # noqa: BLE001
+                            log_event(
+                                "pgvector.delete_unavailable",
+                                error=type(error).__name__,
+                            )
             return
         if re.search(r"不要记住|别记住|do not remember", user_text, re.IGNORECASE):
             return
@@ -84,6 +96,10 @@ class MemoryWriter:
                     await self.database.set_memory_embedding(
                         memory["id"], self.embeddings.model, vector
                     )
-                except (httpx.HTTPError, OSError, ValueError) as error:
+                    if self.vector_store and self.vector_store.available:
+                        await self.vector_store.upsert(
+                            memory, self.embeddings.model, vector
+                        )
+                except Exception as error:  # noqa: BLE001 - optional index is best effort
                     log_event("embedding.unavailable", error=type(error).__name__)
         await self.summarizer.maybe_summarize(session_id)

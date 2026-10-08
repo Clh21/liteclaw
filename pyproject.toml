@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liteclaw"
-version = "0.5.0"
+version = "0.6.0"
 description = "A lightweight personal AI agent runtime"
 requires-python = ">=3.10"
 dependencies = [
@@ -26,6 +26,7 @@ dependencies = [
 dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "ruff==0.16.10"]
 agentscope = ["agentscope==1.0.21", "tqdm==4.67.1"]
 vector = ["sqlite-vec==0.1.9"]
+postgres = ["asyncpg==0.32.0"]
 
 [project.scripts]
 liteclaw = "app.cli:main"

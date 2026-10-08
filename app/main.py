@@ -22,6 +22,7 @@ from app.evals.service import EvalService
 from app.logging import configure_logging, get_logger, log_event
 from app.memory.embeddings import CachedEmbeddings, OpenAIEmbeddingProvider
 from app.memory.hybrid import HybridRetriever
+from app.memory.pgvector import PgVectorStore
 from app.memory.repository import Database
 from app.memory.writer import MemoryWriter
 from app.models.agentscope_adapter import AgentScopeModelAdapter
@@ -105,7 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.embedding_model and settings.api_key
         else None
     )
-    retriever = HybridRetriever(database, embeddings)
+    pgvector = PgVectorStore(settings.pgvector_url, settings.pgvector_table)
+    retriever = HybridRetriever(database, embeddings, pgvector)
     skills = SkillLoader(settings.workspace_root / "skills").load()
     selector = SkillSelector(skills, {tool.name for tool in registry._tools.values()})
     context_builder = ContextBuilder(
@@ -122,7 +124,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         registry,
         settings.max_agent_steps,
         context_builder,
-        MemoryWriter(database, embeddings, model if settings.api_key else None),
+        MemoryWriter(
+            database,
+            embeddings,
+            model if settings.api_key else None,
+            vector_store=pgvector,
+        ),
         settings.workspace_root,
         settings.require_approval,
     )
@@ -143,6 +150,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         configure_logging(settings.log_level)
         await database.initialize()
+        if await pgvector.initialize():
+            await pgvector.sync(await database.all_memories())
         await mcp_manager.start(registry)
         await task_repository.recover_expired(utc_now(), settings.task_lease_seconds)
         await scheduler.start()
@@ -168,8 +177,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     await asyncio.gather(*pending, return_exceptions=True)
             await mcp_manager.close()
             await browser.close()
+            await pgvector.close()
 
-    application = FastAPI(title="LiteClaw", version="0.5.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.6.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -183,13 +193,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             registry,
             4,
             context_builder,
-            MemoryWriter(database, embeddings, model if settings.api_key else None),
+            MemoryWriter(
+                database,
+                embeddings,
+                model if settings.api_key else None,
+                vector_store=pgvector,
+            ),
             settings.workspace_root,
             settings.require_approval,
         ),
     )
     application.state.retriever = retriever
     application.state.embeddings = embeddings
+    application.state.pgvector = pgvector
     application.state.browser = browser
     application.state.mcp = mcp_manager
     application.state.task_repository = task_repository
@@ -240,6 +256,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "database": "ready",
                 "mcp": mcp_manager.status,
                 "embedding": embeddings.stats if embeddings else "disabled",
+                "pgvector": pgvector.status,
                 "tasks": scheduler.health(),
             }
         response.status_code = 503

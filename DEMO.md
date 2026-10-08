@@ -97,3 +97,16 @@ Invoke-RestMethod -Headers $headers "http://127.0.0.1:8000/v1/browser/sessions/$
 ## 10. 展示 Eval 和坏案例回流
 
 打开 `http://127.0.0.1:8000/evals`，输入服务 API Key。先通过 API 添加一个 calculator 案例，再在页面点击“运行已启用案例”，观察通过率和运行历史。任意对话结果不符合预期时，调用 `POST /v1/evals/cases/from-run/{run_id}` 将原始用户请求保存为回归案例。
+
+## 11. 展示 pgvector 可选索引
+
+设置服务密钥和 URL-safe PostgreSQL 密码，使用两个 Compose 文件启动。配置 embedding model 与模型 API Key 后，先显式写入一条 memory，再调用 memory search。
+
+```powershell
+$env:LITECLAW_SERVER_API_KEY='demo-secret'
+$env:LITECLAW_POSTGRES_PASSWORD='postgres-secret'
+docker compose -f compose.yaml -f compose.pgvector.yaml up --build
+Invoke-RestMethod -Headers @{Authorization='Bearer demo-secret'} http://127.0.0.1:8000/health
+```
+
+health 中 `pgvector=ready` 表示远端索引已启用。停止 PostgreSQL 后，主 API 仍会使用本地向量路径完成搜索。

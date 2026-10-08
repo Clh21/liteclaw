@@ -1,4 +1,3 @@
-import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -40,7 +39,10 @@ async def create_memory(body: CreateMemoryRequest, request: Request):
             await request.app.state.database.set_memory_embedding(
                 memory["id"], embeddings.model, vector
             )
-        except (httpx.HTTPError, OSError, ValueError) as error:
+            pgvector = request.app.state.pgvector
+            if pgvector.available:
+                await pgvector.upsert(memory, embeddings.model, vector)
+        except Exception as error:  # noqa: BLE001 - optional index is best effort
             log_event("embedding.unavailable", error=type(error).__name__)
     return {key: value for key, value in memory.items() if key != "embedding"}
 
@@ -49,4 +51,10 @@ async def create_memory(body: CreateMemoryRequest, request: Request):
 async def delete_memory(memory_id: str, request: Request):
     if not await request.app.state.database.delete_memory(memory_id):
         raise HTTPException(404, detail={"code": "memory_not_found"})
+    pgvector = request.app.state.pgvector
+    if pgvector.available:
+        try:
+            await pgvector.delete(memory_id)
+        except Exception as error:  # noqa: BLE001 - SQLite delete already succeeded
+            log_event("pgvector.delete_unavailable", error=type(error).__name__)
     return {"deleted": True}

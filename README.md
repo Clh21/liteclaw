@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.5 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.6 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -74,6 +74,28 @@ Invoke-RestMethod -Headers $headers -Method Post -Uri "http://127.0.0.1:8000/v1/
 ```
 
 当前断言是大小写不敏感的文本包含判断。删除案例不会删除已保存的运行快照。
+
+## PostgreSQL pgvector 记忆索引（v0.6）
+
+SQLite 仍保存全部事实数据。配置 `LITECLAW_PGVECTOR_URL` 后，已有和新增 memory embedding 会同步到 PostgreSQL，向量检索优先使用 pgvector cosine distance；连接、扩展或查询失败时自动退回 sqlite-vec，再退回 Python cosine。`/health` 的 `pgvector` 字段显示 `disabled`、`ready` 或 `unavailable`，不会暴露连接 URL。
+
+本地连接已有 PostgreSQL：
+
+```powershell
+python -m pip install -e ".[postgres]"
+$env:LITECLAW_PGVECTOR_URL='postgresql://liteclaw:password@127.0.0.1:5432/liteclaw'
+python -m liteclaw
+```
+
+使用仓库提供的 pgvector Compose 叠加文件：
+
+```powershell
+$env:LITECLAW_SERVER_API_KEY='replace-with-a-long-random-key'
+$env:LITECLAW_POSTGRES_PASSWORD='use-a-url-safe-password'
+docker compose -f compose.yaml -f compose.pgvector.yaml up --build
+```
+
+该部署使用固定的 `pgvector/pgvector:0.8.7-pg17-bookworm` 镜像和独立数据卷。当前表使用无固定维度的 `vector` 列以兼容不同 embedding provider；达到大规模数据后，应按实际维度增加 HNSW 或 IVFFlat 索引。
 
 ## API 示例
 
@@ -169,4 +191,4 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.5 本地验收为主环境 `75 passed`，干净环境 `74 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归和部署文件。Playwright 已实际打开 example.com。由于 Docker Desktop 引擎未启动，只验证 `docker compose config`；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.6 本地验收为主环境 `82 passed`，干净环境 `81 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 适配与降级和部署文件。真实 HTTP 验证确认 PostgreSQL 不可达时 health 显示 `pgvector=unavailable`，聊天仍正常工作。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 服务，pgvector 数据库集成使用模拟连接验证 SQL 和状态机；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
