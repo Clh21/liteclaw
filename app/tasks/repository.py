@@ -170,3 +170,60 @@ class TaskRepository:
             )
             await connection.commit()
         return cursor.rowcount
+
+    async def update_run(
+        self,
+        task_run_id: str,
+        status: str,
+        agent_run_id: str | None = None,
+        answer: str | None = None,
+        error: str | None = None,
+        finished: bool = False,
+    ) -> None:
+        async with self.database.connection() as connection:
+            await connection.execute(
+                "UPDATE scheduled_task_runs SET status=?,agent_run_id=COALESCE(?,agent_run_id),answer=?,error=?,finished_at=? WHERE id=?",
+                (
+                    status,
+                    agent_run_id,
+                    answer,
+                    error,
+                    _iso(utc_now()) if finished else None,
+                    task_run_id,
+                ),
+            )
+            await connection.commit()
+
+    async def set_task_state(
+        self,
+        task_id: str,
+        status: str,
+        next_run_at: datetime | None = None,
+        retry_count: int = 0,
+        last_error: str | None = None,
+    ) -> None:
+        async with self.database.connection() as connection:
+            await connection.execute(
+                "UPDATE scheduled_tasks SET status=?,next_run_at=COALESCE(?,next_run_at),retry_count=?,claimed_at=NULL,last_error=?,updated_at=? WHERE id=?",
+                (
+                    status,
+                    _iso(next_run_at) if next_run_at else None,
+                    retry_count,
+                    last_error,
+                    _iso(utc_now()),
+                    task_id,
+                ),
+            )
+            await connection.commit()
+
+    async def find_waiting_by_agent_run(self, agent_run_id: str) -> dict | None:
+        async with self.database.connection() as connection:
+            cursor = await connection.execute(
+                """SELECT r.*,t.schedule_type,t.interval_seconds,t.next_run_at,
+                t.status AS task_status FROM scheduled_task_runs r
+                JOIN scheduled_tasks t ON t.id=r.task_id
+                WHERE r.agent_run_id=? AND r.status='waiting_approval'""",
+                (agent_run_id,),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row else None
