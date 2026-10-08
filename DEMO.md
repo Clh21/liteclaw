@@ -70,3 +70,16 @@ curl.exe -N -X POST http://127.0.0.1:8000/v1/chat/stream `
 ```
 
 终端会依次显示 `run_started`、`model_started`、`model_completed`、`tool_started`、`tool_completed`、`final` 和 `done`。把请求换成需要 shell 或覆盖文件的操作，可展示 `approval_required`；该事件不包含危险工具的完整参数。
+
+## 8. 展示服务鉴权与容器部署
+
+在 `.env` 中设置 `LITECLAW_SERVER_API_KEY=demo-secret` 并重启服务。此时不带密钥访问 `/v1/sessions` 会返回 401，带 Bearer 密钥可正常调用；`/health` 无需密钥。
+
+```powershell
+curl.exe -i http://127.0.0.1:8000/v1/sessions
+curl.exe -i http://127.0.0.1:8000/health
+curl.exe -i -H 'Authorization: Bearer demo-secret' http://127.0.0.1:8000/v1/sessions
+
+$env:LITECLAW_SERVER_API_KEY='demo-secret'
+docker compose up --build
+```

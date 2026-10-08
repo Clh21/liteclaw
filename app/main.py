@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 
 from app.api.approvals import router as approvals_router
 from app.api.chat import router as chat_router
@@ -22,6 +23,7 @@ from app.memory.writer import MemoryWriter
 from app.models.agentscope_adapter import AgentScopeModelAdapter
 from app.models.fake import FakeModel
 from app.models.openai_compatible import OpenAICompatibleModel
+from app.security import credentials_valid
 from app.skills.loader import SkillLoader
 from app.skills.selector import SkillSelector
 from app.tasks.models import utc_now
@@ -152,7 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await mcp_manager.close()
             await browser.close()
 
-    application = FastAPI(title="LiteClaw", version="0.3.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.4.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -183,7 +185,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.middleware("http")
     async def request_logging(request, call_next):
         request_id = uuid4().hex
-        response = await call_next(request)
+        if (
+            settings.server_api_key
+            and request.url.path.startswith("/v1")
+            and not credentials_valid(request.headers, settings.server_api_key)
+        ):
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": {"code": "unauthorized"}},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         log_event(
             "http.request",

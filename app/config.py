@@ -10,9 +10,12 @@ class Settings(BaseSettings):
     )
 
     model_provider: str = "openai_compatible"
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=1, le=65535)
     model: str = "gpt-5-mini"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = Field(default="", repr=False)
+    server_api_key: str = Field(default="", repr=False)
     db_path: Path = Path("data/liteclaw.db")
     workspace_root: Path = Field(default_factory=Path.cwd)
     max_agent_steps: int = Field(default=8, ge=1, le=100)
