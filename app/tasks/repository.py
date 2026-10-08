@@ -22,7 +22,9 @@ class TaskRepository:
             session_id = (await self.database.create_session(title=request.name))["id"]
         elif await self.database.get_session(session_id) is None:
             raise KeyError("session_not_found")
-        first_run = request.run_at or now + timedelta(seconds=request.interval_seconds or 0)
+        first_run = request.run_at or now + timedelta(
+            seconds=request.interval_seconds or 0
+        )
         task = {
             "id": uuid4().hex,
             "name": request.name,
@@ -100,7 +102,9 @@ class TaskRepository:
                     (timestamp, timestamp, row["id"]),
                 )
                 if result.rowcount == 1:
-                    claimed.append({**dict(row), "status": "running", "claimed_at": timestamp})
+                    claimed.append(
+                        {**dict(row), "status": "running", "claimed_at": timestamp}
+                    )
             await connection.commit()
         return claimed
 

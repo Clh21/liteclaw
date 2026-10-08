@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder 和混合记忆检索；FastAPI 对外提供会话、对话、记忆和审批接口。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.2 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、记忆、审批和任务接口。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -80,6 +80,25 @@ Context Builder 保留系统规则、选中的 Skills、滚动会话摘要、相
 
 可选 Planner 通过 `LITECLAW_ENABLE_PLANNER=true` 开启，请求 `POST /v1/chat` 时加 `"plan":true`。Planner 最多分成五个顺序子任务，为每个 Worker 创建独立会话，并汇总结果。子任务等待高风险工具审批时，API 返回 202；审批后从 SQLite 中保存的计划状态继续执行。普通请求仍走单 Agent。
 
+## 持久化任务（v0.2）
+
+任务调度器支持一次性任务和固定间隔周期任务。定义、下一次执行时间、重试次数和最近 20 次执行记录保存在 SQLite，服务重启后仍会恢复。当前版本面向单进程 Uvicorn；不要用多个 worker 同时运行同一个数据库。
+
+```powershell
+$body = @{
+  name = 'Atlas 状态检查'
+  prompt = '检查 Atlas 项目状态并给出简短总结'
+  schedule_type = 'once'
+  run_at = (Get-Date).ToUniversalTime().AddMinutes(2).ToString('o')
+} | ConvertTo-Json
+$task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/tasks -ContentType application/json -Body $body
+Invoke-RestMethod http://127.0.0.1:8000/v1/tasks/$($task.id)
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/v1/tasks/$($task.id)/pause
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/v1/tasks/$($task.id)/resume
+```
+
+周期任务把 `schedule_type` 设为 `interval`，并提供至少 10 秒的 `interval_seconds`。失败默认最多重试两次，间隔依次为 5 秒和 15 秒；可用 `max_retries` 调整为 0–5。任务触发高风险工具时进入 `waiting_approval`，调用原有审批接口后继续执行。`GET /health` 的 `tasks` 字段显示调度器状态、正在执行数量和最近轮询时间。
+
 ## 验证
 
 ```powershell
@@ -92,4 +111,4 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前本地验收：主环境 `41 passed`，全新虚拟环境缺少可选 sqlite-vec 时跳过对应测试；Playwright 打开 `https://example.com` 成功；本地 HTTP 服务的计算请求完成了模型工具调用、工具执行与最终回答。由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.2 本地验收：主环境 `53 passed`，全新虚拟环境 `52 passed, 1 skipped`（仅缺少可选 sqlite-vec）；Playwright 打开 `https://example.com` 成功；本地 HTTP 服务已验证计算工具闭环、任务到期执行、单次执行约束和服务重启后的任务恢复。由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。

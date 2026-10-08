@@ -44,3 +44,18 @@ python scripts/benchmark.py
 ```
 
 脚本输出重复文本下 embedding 缓存的请求次数和长会话的上下文 token 估算。它只使用模拟数据，不应当把结果当作真实线上成本节约率。
+
+## 6. 展示持久化任务
+
+```powershell
+$body = @{
+  name = '两分钟后计算'
+  prompt = 'calculate (1234*17+8)/3'
+  schedule_type = 'once'
+  run_at = (Get-Date).ToUniversalTime().AddMinutes(2).ToString('o')
+} | ConvertTo-Json
+$task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/tasks -ContentType application/json -Body $body
+Invoke-RestMethod http://127.0.0.1:8000/v1/tasks/$($task.id) | ConvertTo-Json -Depth 8
+```
+
+重启服务后再次查询同一任务，任务定义和运行历史仍然存在。若任务调用 shell、覆盖文件或其他高风险工具，详情状态会显示 `waiting_approval`；使用返回的 approval API 批准后，任务继续完成。

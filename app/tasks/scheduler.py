@@ -33,7 +33,9 @@ class TaskScheduler:
     def status(self) -> str:
         if not self.enabled:
             return "disabled"
-        return "running" if self._loop_task and not self._loop_task.done() else "stopped"
+        return (
+            "running" if self._loop_task and not self._loop_task.done() else "stopped"
+        )
 
     async def start(self) -> None:
         if not self.enabled or (self._loop_task and not self._loop_task.done()):

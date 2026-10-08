@@ -14,7 +14,7 @@ def test_once_task_requires_timezone_aware_run_at():
             name="report",
             prompt="Write report",
             schedule_type="once",
-            run_at=datetime(2026, 10, 8, 12, 0),
+            run_at=datetime(2026, 10, 8, 12, 0),  # noqa: DTZ001 - rejects naive input
         )
 
 

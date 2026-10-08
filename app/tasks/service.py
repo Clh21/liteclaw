@@ -96,7 +96,10 @@ class TaskService:
         retries = task["retry_count"] + 1
         if current["pause_requested"]:
             await self.repository.set_task_state(
-                task["id"], "paused", retry_count=task["retry_count"], last_error=message
+                task["id"],
+                "paused",
+                retry_count=task["retry_count"],
+                last_error=message,
             )
         elif retryable and retries <= task["max_retries"]:
             delay = RETRY_DELAYS[min(retries - 1, len(RETRY_DELAYS) - 1)]
@@ -115,7 +118,10 @@ class TaskService:
             )
         else:
             await self.repository.set_task_state(
-                task["id"], "failed", retry_count=task["retry_count"], last_error=message
+                task["id"],
+                "failed",
+                retry_count=task["retry_count"],
+                last_error=message,
             )
         log_event(
             "task.run_failed",

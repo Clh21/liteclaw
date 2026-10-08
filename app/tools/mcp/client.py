@@ -33,7 +33,10 @@ class MCPClientManager:
                 workspace = self.config_path.resolve().parent.as_posix()
                 replacements = {"python": sys.executable, "workspace": workspace}
                 command = str(definition["command"]).format_map(replacements)
-                args = [str(value).format_map(replacements) for value in definition.get("args", [])]
+                args = [
+                    str(value).format_map(replacements)
+                    for value in definition.get("args", [])
+                ]
                 parameters = StdioServerParameters(
                     command=command,
                     args=args,

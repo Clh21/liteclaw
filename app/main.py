@@ -22,6 +22,10 @@ from app.models.fake import FakeModel
 from app.models.openai_compatible import OpenAICompatibleModel
 from app.skills.loader import SkillLoader
 from app.skills.selector import SkillSelector
+from app.tasks.models import utc_now
+from app.tasks.repository import TaskRepository
+from app.tasks.scheduler import TaskScheduler
+from app.tasks.service import TaskService
 from app.tools.browser.manager import BrowserManager
 from app.tools.browser.tools import (
     BrowserClickTool,
@@ -36,10 +40,6 @@ from app.tools.builtin.file_tools import FileReadTool, FileWriteTool
 from app.tools.builtin.shell import ShellRunTool
 from app.tools.mcp.client import MCPClientManager
 from app.tools.registry import ToolRegistry
-from app.tasks.repository import TaskRepository
-from app.tasks.scheduler import TaskScheduler
-from app.tasks.service import TaskService
-from app.tasks.models import utc_now
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -141,7 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await mcp_manager.close()
             await browser.close()
 
-    application = FastAPI(title="LiteClaw", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.2.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
