@@ -73,7 +73,9 @@ class ContextBuilder:
         memories = []
         if self.retriever and history:
             memories = await self.retriever.search(
-                history[-1]["content"] or "", self.memory_top_k
+                history[-1]["content"] or "",
+                self.memory_top_k,
+                owner_id=session["owner_id"],
             )
             if memories:
                 lines = [f"- {hit['content'][:300]}" for hit in memories]

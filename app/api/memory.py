@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from app.api.access import owner_scope, resolve_creation_owner
 from app.logging import log_event
 
 router = APIRouter(prefix="/v1/memory", tags=["memory"])
@@ -10,6 +11,7 @@ class CreateMemoryRequest(BaseModel):
     content: str = Field(min_length=1)
     kind: str = "note"
     importance: float = Field(default=0.5, ge=0, le=1)
+    owner_id: str | None = None
 
 
 @router.get("/search")
@@ -18,7 +20,9 @@ async def search_memory(
     q: str = Query(min_length=1),
     top_k: int = Query(default=8, ge=1, le=100),
 ):
-    results = await request.app.state.retriever.search(q, top_k)
+    results = await request.app.state.retriever.search(
+        q, top_k, owner_id=owner_scope(request)
+    )
     return {
         "results": [
             {key: value for key, value in result.items() if key != "embedding"}
@@ -30,7 +34,10 @@ async def search_memory(
 @router.post("")
 async def create_memory(body: CreateMemoryRequest, request: Request):
     memory = await request.app.state.database.add_memory(
-        body.content, body.kind, body.importance
+        body.content,
+        body.kind,
+        body.importance,
+        owner_id=await resolve_creation_owner(request, body.owner_id),
     )
     embeddings = request.app.state.embeddings
     if embeddings is not None and memory["embedding"] is None:
@@ -49,7 +56,9 @@ async def create_memory(body: CreateMemoryRequest, request: Request):
 
 @router.delete("/{memory_id}")
 async def delete_memory(memory_id: str, request: Request):
-    if not await request.app.state.database.delete_memory(memory_id):
+    if not await request.app.state.database.delete_memory(
+        memory_id, owner_id=owner_scope(request)
+    ):
         raise HTTPException(404, detail={"code": "memory_not_found"})
     pgvector = request.app.state.pgvector
     if pgvector.available:

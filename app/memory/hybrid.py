@@ -50,8 +50,12 @@ class HybridRetriever:
         self.remote_vector_store = remote_vector_store
         self.vector_store = SqliteVecStore()
 
-    async def search(self, query: str, top_k: int = 8) -> list[dict]:
-        keyword = await self.database.search_fts(query, limit=top_k * 3)
+    async def search(
+        self, query: str, top_k: int = 8, owner_id: str | None = None
+    ) -> list[dict]:
+        keyword = await self.database.search_fts(
+            query, limit=top_k * 3, owner_id=owner_id
+        )
         vector: list[dict] = []
         if self.embeddings is not None:
             try:
@@ -59,12 +63,15 @@ class HybridRetriever:
                 if self.remote_vector_store and self.remote_vector_store.available:
                     try:
                         vector = await self.remote_vector_store.search(
-                            query_vector, self.embeddings.model, top_k * 3
+                            query_vector,
+                            self.embeddings.model,
+                            top_k * 3,
+                            owner_id=owner_id,
                         )
                         records = {
                             item["id"]: item
                             for item in await self.database.get_memories_by_ids(
-                                [item["id"] for item in vector]
+                                [item["id"] for item in vector], owner_id=owner_id
                             )
                         }
                         vector = [
@@ -76,7 +83,7 @@ class HybridRetriever:
                         vector = []
                 if vector:
                     return rrf(keyword, vector)[:top_k]
-                candidates = await self.database.all_memories()
+                candidates = await self.database.all_memories(owner_id=owner_id)
                 prepared = [
                     {**row, "embedding": json.loads(row["embedding"])}
                     for row in candidates

@@ -1,11 +1,8 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
+
+from app.api.access import require_session
 
 router = APIRouter(prefix="/v1/browser/sessions", tags=["browser"])
-
-
-async def require_session(request: Request, session_id: str) -> None:
-    if await request.app.state.database.get_session(session_id) is None:
-        raise HTTPException(404, detail={"code": "session_not_found"})
 
 
 @router.get("/{session_id}/state")

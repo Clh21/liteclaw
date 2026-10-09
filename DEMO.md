@@ -141,3 +141,9 @@ python -m app.model_doctor
 ## 15. 展示 RBAC
 
 设置 `LITECLAW_RBAC_ENABLED=true` 和一个强随机 `LITECLAW_SERVER_API_KEY`。使用该管理员 Key 创建 `viewer` 和 `user`，分别签发 Token。viewer 可以读取会话但创建会话返回 403；user 可以创建会话；撤销 Token 后再次访问返回 401。Token 明文只会出现在签发响应中。
+
+## 16. 展示多用户资源隔离
+
+分别使用两个 `user` Token 创建会话、记忆和持久化任务。使用第二个用户读取第一个用户的会话、运行、浏览器状态、任务或审批时会返回 404，搜索也不会返回对方的记忆；管理员 Token 可以读取这些资源。普通用户访问 `/v1/evals/cases` 返回 403。
+
+从 v1.0 升级的无归属会话仅管理员可见。关闭 `LITECLAW_RBAC_ENABLED` 后，接口继续按原来的单用户模式工作。

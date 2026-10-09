@@ -10,6 +10,35 @@ from app.memory.vector import SqliteVecStore
 
 
 @pytest.mark.asyncio
+async def test_all_memories_supports_unbounded_pgvector_backfill(tmp_path):
+    database = Database(tmp_path / "memory.db")
+    await database.initialize()
+    rows = [
+        (
+            f"memory-{index}",
+            "alice",
+            "main",
+            f"content {index}",
+            "fact",
+            0.5,
+            f"2026-01-01T00:00:{index % 60:02d}+00:00",
+        )
+        for index in range(1001)
+    ]
+    async with database.connection() as connection:
+        await connection.executemany(
+            """INSERT INTO memories(
+            id,owner_id,agent_id,content,kind,importance,created_at,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?)""",
+            [(*row, row[-1]) for row in rows],
+        )
+        await connection.commit()
+
+    assert len(await database.all_memories()) == 1000
+    assert len(await database.all_memories(limit=None)) == 1001
+
+
+@pytest.mark.asyncio
 async def test_memory_fts_and_hybrid_search():
     with tempfile.TemporaryDirectory() as directory:
         database = Database(Path(directory) / "memory.db")

@@ -39,6 +39,7 @@ class PgVectorStore:
                 await connection.execute(
                     f"""CREATE TABLE IF NOT EXISTS {self.table} (
                         memory_id TEXT PRIMARY KEY,
+                        owner_id TEXT,
                         agent_id TEXT NOT NULL,
                         session_id TEXT,
                         content TEXT NOT NULL,
@@ -48,6 +49,12 @@ class PgVectorStore:
                         embedding vector NOT NULL,
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )"""
+                )
+                await connection.execute(
+                    f"ALTER TABLE {self.table} ADD COLUMN IF NOT EXISTS owner_id TEXT"
+                )
+                await connection.execute(
+                    f"CREATE INDEX IF NOT EXISTS {self.table}_owner_idx ON {self.table}(owner_id)"
                 )
             self.status = "ready"
             return True
@@ -71,15 +78,17 @@ class PgVectorStore:
             async with self.pool.acquire() as connection:
                 await connection.execute(
                     f"""INSERT INTO {self.table}
-                    (memory_id,agent_id,session_id,content,kind,importance,embedding_model,embedding,updated_at)
-                    VALUES($1,$2,$3,$4,$5,$6,$7,$8::vector,NOW())
+                    (memory_id,owner_id,agent_id,session_id,content,kind,importance,embedding_model,embedding,updated_at)
+                    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::vector,NOW())
                     ON CONFLICT(memory_id) DO UPDATE SET
-                    agent_id=EXCLUDED.agent_id,session_id=EXCLUDED.session_id,
+                    owner_id=EXCLUDED.owner_id,agent_id=EXCLUDED.agent_id,
+                    session_id=EXCLUDED.session_id,
                     content=EXCLUDED.content,kind=EXCLUDED.kind,
                     importance=EXCLUDED.importance,
                     embedding_model=EXCLUDED.embedding_model,
                     embedding=EXCLUDED.embedding,updated_at=NOW()""",
                     memory["id"],
+                    memory.get("owner_id"),
                     memory.get("agent_id", "main"),
                     memory.get("session_id"),
                     memory["content"],
@@ -94,22 +103,38 @@ class PgVectorStore:
         return True
 
     async def search(
-        self, query: list[float], embedding_model: str, limit: int
+        self,
+        query: list[float],
+        embedding_model: str,
+        limit: int,
+        owner_id: str | None = None,
     ) -> list[dict]:
         if not self.available or not query:
             return []
         vector = json.dumps(query, separators=(",", ":"))
         try:
             async with self.pool.acquire() as connection:
-                rows = await connection.fetch(
-                    f"""SELECT memory_id AS id,agent_id,session_id,content,kind,
-                    importance,embedding_model,embedding <=> $1::vector AS distance
-                    FROM {self.table} WHERE embedding_model=$2
-                    ORDER BY embedding <=> $1::vector LIMIT $3""",
-                    vector,
-                    embedding_model,
-                    limit,
-                )
+                if owner_id is None:
+                    rows = await connection.fetch(
+                        f"""SELECT memory_id AS id,owner_id,agent_id,session_id,content,kind,
+                        importance,embedding_model,embedding <=> $1::vector AS distance
+                        FROM {self.table} WHERE embedding_model=$2
+                        ORDER BY embedding <=> $1::vector LIMIT $3""",
+                        vector,
+                        embedding_model,
+                        limit,
+                    )
+                else:
+                    rows = await connection.fetch(
+                        f"""SELECT memory_id AS id,owner_id,agent_id,session_id,content,kind,
+                        importance,embedding_model,embedding <=> $1::vector AS distance
+                        FROM {self.table} WHERE embedding_model=$2 AND owner_id=$3
+                        ORDER BY embedding <=> $1::vector LIMIT $4""",
+                        vector,
+                        embedding_model,
+                        owner_id,
+                        limit,
+                    )
         except Exception:
             self.status = "unavailable"
             raise

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from app.api.access import owner_scope
 from app.core.runtime import PendingRunResult
 from app.models.openai_compatible import ModelAuthError, ModelUnavailable
 
@@ -7,6 +8,11 @@ router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 
 
 async def decide(approval_id: str, approve: bool, request: Request, response: Response):
+    approval = await request.app.state.database.get_approval_for_owner(
+        approval_id, owner_scope(request)
+    )
+    if approval is None:
+        raise HTTPException(404, detail={"code": "approval_not_found"})
     try:
         result = await request.app.state.runtime.resolve_approval(approval_id, approve)
         await request.app.state.task_service.complete_after_approval(result)

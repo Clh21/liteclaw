@@ -32,6 +32,22 @@ class Database:
                 await connection.execute(
                     "ALTER TABLE sessions ADD COLUMN summarized_message_count INTEGER NOT NULL DEFAULT 0"
                 )
+            if "owner_id" not in session_columns:
+                await connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN owner_id TEXT"
+                )
+            cursor = await connection.execute("PRAGMA table_info(memories)")
+            memory_columns = {row[1] for row in await cursor.fetchall()}
+            if "owner_id" not in memory_columns:
+                await connection.execute(
+                    "ALTER TABLE memories ADD COLUMN owner_id TEXT"
+                )
+            await connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id)"
+            )
+            await connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memories_owner ON memories(owner_id)"
+            )
             await connection.commit()
 
     async def ready(self) -> bool:
@@ -83,6 +99,15 @@ class Database:
             "token": token
         }
 
+    async def get_active_user(self, user_id: str) -> dict | None:
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT id,username,role,active,created_at FROM users WHERE id=? AND active=1",
+                (user_id,),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def authenticate_api_token(self, token: str) -> dict | None:
         digest = sha256(token.encode()).hexdigest()
         async with self.connection() as connection:
@@ -112,10 +137,13 @@ class Database:
             await connection.execute("PRAGMA foreign_keys=ON")
             yield connection
 
-    async def create_session(self, title: str | None = None) -> dict:
+    async def create_session(
+        self, title: str | None = None, owner_id: str | None = None
+    ) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         session = {
             "id": uuid4().hex,
+            "owner_id": owner_id,
             "title": title,
             "agent_id": "main",
             "summary": None,
@@ -124,7 +152,7 @@ class Database:
         }
         async with self.connection() as connection:
             await connection.execute(
-                "INSERT INTO sessions(id,title,agent_id,summary,created_at,updated_at) VALUES(:id,:title,:agent_id,:summary,:created_at,:updated_at)",
+                "INSERT INTO sessions(id,owner_id,title,agent_id,summary,created_at,updated_at) VALUES(:id,:owner_id,:title,:agent_id,:summary,:created_at,:updated_at)",
                 session,
             )
             await connection.commit()
@@ -134,6 +162,19 @@ class Database:
         async with self.connection() as connection:
             cursor = await connection.execute(
                 "SELECT * FROM sessions WHERE id=?", (session_id,)
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_session_for_owner(
+        self, session_id: str, owner_id: str | None
+    ) -> dict | None:
+        if owner_id is None:
+            return await self.get_session(session_id)
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT * FROM sessions WHERE id=? AND owner_id=?",
+                (session_id, owner_id),
             )
             row = await cursor.fetchone()
         return dict(row) if row else None
@@ -217,6 +258,13 @@ class Database:
             if row
             else None
         )
+
+    async def get_run_for_owner(self, run_id: str, owner_id: str | None) -> dict | None:
+        run = await self.get_run(run_id)
+        if run is None or owner_id is None:
+            return run
+        session = await self.get_session_for_owner(run["session_id"], owner_id)
+        return run if session else None
 
     async def save_planner_state(
         self,
@@ -303,6 +351,25 @@ class Database:
             await connection.commit()
         return dict(row)
 
+    async def get_approval_for_owner(
+        self, approval_id: str, owner_id: str | None
+    ) -> dict | None:
+        async with self.connection() as connection:
+            if owner_id is None:
+                cursor = await connection.execute(
+                    "SELECT * FROM approvals WHERE id=?", (approval_id,)
+                )
+            else:
+                cursor = await connection.execute(
+                    """SELECT a.* FROM approvals a
+                    JOIN agent_runs r ON r.id=a.run_id
+                    JOIN sessions s ON s.id=r.session_id
+                    WHERE a.id=? AND s.owner_id=?""",
+                    (approval_id, owner_id),
+                )
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+
     async def record_tool_event(
         self, run_id: str, tool_name: str, arguments: dict, result: dict
     ) -> None:
@@ -354,6 +421,7 @@ class Database:
         session_id: str | None = None,
         embedding: list[float] | None = None,
         embedding_model: str | None = None,
+        owner_id: str | None = None,
     ) -> dict:
         import hashlib
 
@@ -364,14 +432,15 @@ class Database:
         now = datetime.now(timezone.utc).isoformat()
         async with self.connection() as connection:
             cursor = await connection.execute(
-                "SELECT * FROM memories WHERE agent_id=? AND content_hash=?",
-                (agent_id, content_hash),
+                "SELECT * FROM memories WHERE agent_id=? AND content_hash=? AND owner_id IS ?",
+                (agent_id, content_hash, owner_id),
             )
             existing = await cursor.fetchone()
             if existing:
                 return dict(existing)
             memory = {
                 "id": uuid4().hex,
+                "owner_id": owner_id,
                 "agent_id": agent_id,
                 "session_id": session_id,
                 "content": normalized,
@@ -386,7 +455,7 @@ class Database:
                 "updated_at": now,
             }
             await connection.execute(
-                "INSERT INTO memories(id,agent_id,session_id,content,kind,importance,embedding_model,embedding,content_hash,created_at,updated_at) VALUES(:id,:agent_id,:session_id,:content,:kind,:importance,:embedding_model,:embedding,:content_hash,:created_at,:updated_at)",
+                "INSERT INTO memories(id,owner_id,agent_id,session_id,content,kind,importance,embedding_model,embedding,content_hash,created_at,updated_at) VALUES(:id,:owner_id,:agent_id,:session_id,:content,:kind,:importance,:embedding_model,:embedding,:content_hash,:created_at,:updated_at)",
                 memory,
             )
             await connection.execute(
@@ -396,18 +465,27 @@ class Database:
             await connection.commit()
         return memory
 
-    async def delete_memory(self, memory_id: str) -> bool:
+    async def delete_memory(self, memory_id: str, owner_id: str | None = None) -> bool:
         async with self.connection() as connection:
-            await connection.execute(
-                "DELETE FROM memories_fts WHERE memory_id=?", (memory_id,)
-            )
-            cursor = await connection.execute(
-                "DELETE FROM memories WHERE id=?", (memory_id,)
-            )
+            if owner_id is None:
+                cursor = await connection.execute(
+                    "DELETE FROM memories WHERE id=?", (memory_id,)
+                )
+            else:
+                cursor = await connection.execute(
+                    "DELETE FROM memories WHERE id=? AND owner_id=?",
+                    (memory_id, owner_id),
+                )
+            if cursor.rowcount:
+                await connection.execute(
+                    "DELETE FROM memories_fts WHERE memory_id=?", (memory_id,)
+                )
             await connection.commit()
             return cursor.rowcount > 0
 
-    async def search_fts(self, query: str, limit: int = 24) -> list[dict]:
+    async def search_fts(
+        self, query: str, limit: int = 24, owner_id: str | None = None
+    ) -> list[dict]:
         tokens = re.findall(r"\w+", query, flags=re.UNICODE)
         if not tokens:
             return []
@@ -415,29 +493,53 @@ class Database:
             '"' + token.replace('"', '""') + '"' for token in tokens[:12]
         )
         async with self.connection() as connection:
+            owner_clause = " AND m.owner_id=?" if owner_id is not None else ""
             cursor = await connection.execute(
-                "SELECT m.*,bm25(memories_fts) AS bm25_score FROM memories_fts JOIN memories m ON m.id=memories_fts.memory_id WHERE memories_fts MATCH ? ORDER BY bm25_score LIMIT ?",
-                (match, limit),
+                "SELECT m.*,bm25(memories_fts) AS bm25_score FROM memories_fts JOIN memories m ON m.id=memories_fts.memory_id WHERE memories_fts MATCH ?"
+                + owner_clause
+                + " ORDER BY bm25_score LIMIT ?",
+                (match, owner_id, limit) if owner_id is not None else (match, limit),
             )
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def all_memories(self, limit: int = 1000) -> list[dict]:
+    async def all_memories(
+        self, limit: int | None = 1000, owner_id: str | None = None
+    ) -> list[dict]:
         async with self.connection() as connection:
-            cursor = await connection.execute(
-                "SELECT * FROM memories ORDER BY created_at DESC LIMIT ?", (limit,)
-            )
+            if owner_id is None and limit is None:
+                cursor = await connection.execute(
+                    "SELECT * FROM memories ORDER BY created_at DESC"
+                )
+            elif owner_id is None:
+                cursor = await connection.execute(
+                    "SELECT * FROM memories ORDER BY created_at DESC LIMIT ?", (limit,)
+                )
+            elif limit is None:
+                cursor = await connection.execute(
+                    "SELECT * FROM memories WHERE owner_id=? ORDER BY created_at DESC",
+                    (owner_id,),
+                )
+            else:
+                cursor = await connection.execute(
+                    "SELECT * FROM memories WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+                    (owner_id, limit),
+                )
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def get_memories_by_ids(self, memory_ids: list[str]) -> list[dict]:
+    async def get_memories_by_ids(
+        self, memory_ids: list[str], owner_id: str | None = None
+    ) -> list[dict]:
         if not memory_ids:
             return []
         placeholders = ",".join("?" for _ in memory_ids)
         async with self.connection() as connection:
+            owner_clause = " AND owner_id=?" if owner_id is not None else ""
+            parameters = [*memory_ids, owner_id] if owner_id is not None else memory_ids
             cursor = await connection.execute(
-                f"SELECT * FROM memories WHERE id IN ({placeholders})",
-                memory_ids,
+                f"SELECT * FROM memories WHERE id IN ({placeholders}){owner_clause}",
+                parameters,
             )
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]

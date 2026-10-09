@@ -23,8 +23,10 @@ class RemoteStore:
         self.memory_id = memory_id
         self.upserts = []
         self.deleted = []
+        self.search_owner_ids = []
 
-    async def search(self, query, model, limit):
+    async def search(self, query, model, limit, owner_id=None):
+        self.search_owner_ids.append(owner_id)
         if self.fail_search:
             raise OSError("postgres disconnected")
         return [
@@ -63,6 +65,22 @@ async def test_hybrid_uses_pgvector_when_ready(tmp_path):
 
     assert hits[0]["id"] == memory["id"]
     assert hits[0]["vector_rank"] == 1
+
+
+@pytest.mark.asyncio
+async def test_hybrid_passes_owner_filter_to_pgvector(tmp_path):
+    database = Database(Path(tmp_path) / "memory.db")
+    await database.initialize()
+    memory = await database.add_memory("owned vector", owner_id="alice")
+    remote = RemoteStore(memory_id=memory["id"])
+    retriever = HybridRetriever(
+        database, CachedEmbeddings(database, Provider()), remote
+    )
+
+    hits = await retriever.search("owned", top_k=3, owner_id="alice")
+
+    assert hits[0]["id"] == memory["id"]
+    assert remote.search_owner_ids == ["alice"]
 
 
 @pytest.mark.asyncio

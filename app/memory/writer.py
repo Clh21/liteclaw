@@ -31,14 +31,20 @@ class MemoryWriter:
         self.summarizer = SessionSummarizer(database, model=extractor_model)
 
     async def after_turn(self, session_id: str, user_text: str) -> None:
+        session = await self.database.get_session(session_id)
+        if session is None:
+            raise KeyError("session_not_found")
+        owner_id = session["owner_id"]
         forget = re.search(r"(?:forget|忘记)\s*[:：]?\s*(.+)", user_text, re.IGNORECASE)
         if forget:
             target = forget.group(1).strip()
             if target:
-                for memory in await self.database.search_fts(target):
+                for memory in await self.database.search_fts(target, owner_id=owner_id):
                     if (
                         target.casefold() in memory["content"].casefold()
-                        and await self.database.delete_memory(memory["id"])
+                        and await self.database.delete_memory(
+                            memory["id"], owner_id=owner_id
+                        )
                         and self.vector_store
                         and self.vector_store.available
                     ):
@@ -96,6 +102,7 @@ class MemoryWriter:
                 kind=candidate.kind,
                 importance=candidate.importance,
                 session_id=session_id,
+                owner_id=owner_id,
             )
             if self.embeddings is not None and memory["embedding"] is None:
                 try:

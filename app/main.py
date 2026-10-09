@@ -183,7 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tracing.initialize()
         await database.initialize()
         if await pgvector.initialize():
-            await pgvector.sync(await database.all_memories())
+            await pgvector.sync(await database.all_memories(limit=None))
         await mcp_manager.start(registry)
         await task_repository.recover_expired(utc_now(), settings.task_lease_seconds)
         await scheduler.start()
@@ -212,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="1.0.1", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="1.1.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -261,7 +261,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             http_method=request.method,
             http_path=request.url.path,
         ) as span:
-            if settings.rbac_enabled and request.url.path.startswith("/v1"):
+            if settings.rbac_enabled and (
+                request.url.path.startswith("/v1") or request.url.path == "/evals"
+            ):
                 principal = await authenticate(
                     request.headers, database, settings.server_api_key
                 )
@@ -272,7 +274,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         headers={"WWW-Authenticate": "Bearer"},
                     )
                 elif (
-                    request.url.path.startswith("/v1/admin")
+                    (
+                        request.url.path.startswith("/v1/admin")
+                        or request.url.path.startswith("/v1/evals")
+                        or request.url.path == "/evals"
+                    )
                     and principal.role != "admin"
                 ) or (
                     principal.role == "viewer"

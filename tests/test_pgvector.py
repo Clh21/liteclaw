@@ -54,6 +54,7 @@ async def test_pgvector_initializes_upserts_searches_and_deletes():
 
     memory = {
         "id": "m1",
+        "owner_id": "alice",
         "agent_id": "main",
         "session_id": "s1",
         "content": "Atlas is the project",
@@ -71,9 +72,11 @@ async def test_pgvector_initializes_upserts_searches_and_deletes():
             "distance": 0.1,
         }
     ]
-    hits = await store.search([0.1, 0.2], "embed-v1", 8)
+    hits = await store.search([0.1, 0.2], "embed-v1", 8, owner_id="alice")
     assert hits[0]["id"] == "m1"
     assert "<=>" in connection.executed[-1][0]
+    assert "owner_id=$3" in connection.executed[-1][0]
+    assert connection.executed[-1][1][2] == "alice"
 
     assert (
         await store.sync(

@@ -15,12 +15,24 @@ class TaskRepository:
     def __init__(self, database: Database):
         self.database = database
 
-    async def create(self, request: TaskCreate) -> dict:
+    async def create(
+        self,
+        request: TaskCreate,
+        owner_id: str | None = None,
+        access_owner_id: str | None = None,
+    ) -> dict:
         now = utc_now()
         session_id = request.session_id
         if session_id is None:
-            session_id = (await self.database.create_session(title=request.name))["id"]
-        elif await self.database.get_session(session_id) is None:
+            session_id = (
+                await self.database.create_session(
+                    title=request.name, owner_id=owner_id
+                )
+            )["id"]
+        elif (
+            await self.database.get_session_for_owner(session_id, access_owner_id)
+            is None
+        ):
             raise KeyError("session_not_found")
         first_run = request.run_at or now + timedelta(
             seconds=request.interval_seconds or 0
@@ -58,25 +70,43 @@ class TaskRepository:
         return task
 
     async def list(
-        self, status: str | None = None, limit: int = 100, offset: int = 0
+        self,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        owner_id: str | None = None,
     ) -> list[dict]:
-        query = "SELECT * FROM scheduled_tasks"
+        query = "SELECT t.* FROM scheduled_tasks t JOIN sessions s ON s.id=t.session_id"
         parameters: list[object] = []
+        clauses = []
+        if owner_id is not None:
+            clauses.append("s.owner_id=?")
+            parameters.append(owner_id)
         if status:
-            query += " WHERE status=?"
+            clauses.append("t.status=?")
             parameters.append(status)
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
         parameters.extend([limit, offset])
         async with self.database.connection() as connection:
             cursor = await connection.execute(query, parameters)
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
-    async def get(self, task_id: str) -> dict | None:
+    async def get(self, task_id: str, owner_id: str | None = None) -> dict | None:
         async with self.database.connection() as connection:
-            cursor = await connection.execute(
-                "SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)
-            )
+            if owner_id is None:
+                cursor = await connection.execute(
+                    "SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)
+                )
+            else:
+                cursor = await connection.execute(
+                    """SELECT t.* FROM scheduled_tasks t
+                    JOIN sessions s ON s.id=t.session_id
+                    WHERE t.id=? AND s.owner_id=?""",
+                    (task_id, owner_id),
+                )
             row = await cursor.fetchone()
             if row is None:
                 return None
