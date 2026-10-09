@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.7 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.8 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -149,6 +149,18 @@ python -m pip install -e ".[agentscope]"
 
 然后设置 `LITECLAW_MODEL_PROVIDER=agentscope`。当前适配器针对 AgentScope 1.0.21；无密钥时自动退回本项目的 OpenAI-compatible adapter，并明确返回认证错误。没有配置真实模型时，服务、FakeModel、记忆和本地工具测试仍可运行。
 
+### 模型自检与结构化输出（v0.8）
+
+填写 `.env` 后先运行：
+
+```powershell
+python -m app.model_doctor
+```
+
+命令依次验证配置、普通对话、calculator 工具调用和长期记忆使用的结构化 JSON，成功时退出码为 0。输出只显示 provider、model、base URL、API Key 是否已配置和各检查结果，不会显示 Key、模型正文或工具参数。需要从其他目录指定配置文件时，设置 `LITECLAW_ENV_FILE` 为 `.env` 的绝对路径。
+
+记忆抽取、滚动摘要和 Planner 现在可以解析纯 JSON、Markdown JSON 代码块、JSON 前后的简短说明，以及常见的 `memories`、`items`、`summary`、`plan` 包装对象；业务字段仍经过严格校验，无法识别时继续使用原有降级路径。
+
 ## 工具与审批
 
 内置工具有 `calculator`、`datetime_now`、`file_read`、`file_write`、`shell_run`，以及 `browser_open`、`browser_extract`、`browser_click`、`browser_type`、`browser_screenshot`。文件工具限定在 `LITECLAW_WORKSPACE_ROOT` 下，路径逃逸会被拒绝；calculator 仅解析白名单 AST，不执行 Python 代码；浏览器默认阻止 `file://`、localhost 和内网地址。
@@ -204,6 +216,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.7 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+当前 v0.8 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
 
-当前开发环境完整测试为 `88 passed`；不安装可选 sqlite-vec 扩展的干净环境为 `87 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。
+当前开发环境完整测试为 `104 passed`；不安装可选 sqlite-vec 扩展时预期为 `103 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。

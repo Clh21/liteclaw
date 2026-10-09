@@ -121,3 +121,13 @@ curl.exe -i -X POST http://127.0.0.1:8000/v1/chat `
   -H 'Authorization: Bearer demo-secret' `
   -d '{"message":"calculate 2+3"}'
 ```
+
+## 13. 展示模型兼容性自检
+
+在 `.env` 中填写真实模型配置后运行：
+
+```powershell
+python -m app.model_doctor
+```
+
+检查结果应依次显示 `configuration`、`chat`、`tool_calling` 和 `structured_json` 为 `ok=true`，总结果也为 `ok=true`。输出不包含 API Key 和模型回复正文。该步骤会发出三次短请求。
