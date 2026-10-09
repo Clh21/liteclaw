@@ -3,7 +3,7 @@ FROM python:3.11-slim AS builder
 WORKDIR /build
 COPY . .
 RUN python -m pip install --upgrade pip \
-    && python -m pip wheel --wheel-dir /wheels ".[postgres]"
+    && python -m pip wheel --wheel-dir /wheels ".[postgres,telemetry]"
 
 FROM python:3.11-slim
 

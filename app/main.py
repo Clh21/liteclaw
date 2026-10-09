@@ -28,6 +28,7 @@ from app.memory.writer import MemoryWriter
 from app.models.agentscope_adapter import AgentScopeModelAdapter
 from app.models.fake import FakeModel
 from app.models.openai_compatible import OpenAICompatibleModel
+from app.observability.tracing import Tracing
 from app.security import credentials_valid
 from app.skills.loader import SkillLoader
 from app.skills.selector import SkillSelector
@@ -54,6 +55,9 @@ from app.tools.registry import ToolRegistry
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    tracing = Tracing(
+        settings.otlp_endpoint, settings.otel_service_name, settings.otlp_headers
+    )
     database = Database(settings.database_path)
     registry = ToolRegistry()
     registry.register(CalculatorTool())
@@ -132,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
         settings.workspace_root,
         settings.require_approval,
+        tracing,
     )
     task_repository = TaskRepository(database)
     task_service = TaskService(task_repository, runtime)
@@ -149,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         configure_logging(settings.log_level)
+        tracing.initialize()
         await database.initialize()
         if await pgvector.initialize():
             await pgvector.sync(await database.all_memories())
@@ -178,8 +184,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await mcp_manager.close()
             await browser.close()
             await pgvector.close()
+            tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="0.6.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.7.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -201,6 +208,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             settings.workspace_root,
             settings.require_approval,
+            tracing,
         ),
     )
     application.state.retriever = retriever
@@ -213,31 +221,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.eval_repository = eval_repository
     application.state.eval_service = eval_service
     application.state.scheduler = scheduler
+    application.state.tracing = tracing
     application.state.streaming_tasks = set()
 
     @application.middleware("http")
     async def request_logging(request, call_next):
         request_id = uuid4().hex
-        if (
-            settings.server_api_key
-            and request.url.path.startswith("/v1")
-            and not credentials_valid(request.headers, settings.server_api_key)
-        ):
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": {"code": "unauthorized"}},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        else:
-            response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        log_event(
+        request_tracing = application.state.tracing
+        with request_tracing.span(
             "http.request",
             request_id=request_id,
-            path=request.url.path,
-            status_code=response.status_code,
-        )
-        return response
+            http_method=request.method,
+            http_path=request.url.path,
+        ) as span:
+            if (
+                settings.server_api_key
+                and request.url.path.startswith("/v1")
+                and not credentials_valid(request.headers, settings.server_api_key)
+            ):
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": {"code": "unauthorized"}},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            else:
+                response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            trace_id = request_tracing.trace_id(span)
+            if trace_id:
+                response.headers["X-Trace-ID"] = trace_id
+            if span is not None:
+                span.set_attribute("http.status_code", response.status_code)
+            log_event(
+                "http.request",
+                request_id=request_id,
+                trace_id=trace_id,
+                path=request.url.path,
+                status_code=response.status_code,
+            )
+            return response
 
     application.include_router(sessions_router)
     application.include_router(browser_router)
@@ -257,6 +279,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "mcp": mcp_manager.status,
                 "embedding": embeddings.stats if embeddings else "disabled",
                 "pgvector": pgvector.status,
+                "tracing": tracing.status,
                 "tasks": scheduler.health(),
             }
         response.status_code = 503

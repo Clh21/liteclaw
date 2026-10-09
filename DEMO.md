@@ -110,3 +110,14 @@ Invoke-RestMethod -Headers @{Authorization='Bearer demo-secret'} http://127.0.0.
 ```
 
 health 中 `pgvector=ready` 表示远端索引已启用。停止 PostgreSQL 后，主 API 仍会使用本地向量路径完成搜索。
+
+## 12. 展示 OpenTelemetry trace
+
+启动支持 OTLP HTTP 的 collector，把 `.env` 中 `LITECLAW_OTLP_ENDPOINT` 指向其 `/v1/traces`。调用一次 chat 后，响应头的 `X-Trace-ID` 可用于查询整条 HTTP → Agent → Model → Tool trace。
+
+```powershell
+curl.exe -i -X POST http://127.0.0.1:8000/v1/chat `
+  -H 'Content-Type: application/json' `
+  -H 'Authorization: Bearer demo-secret' `
+  -d '{"message":"calculate 2+3"}'
+```
