@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -73,3 +74,34 @@ def test_calculator_rejects_code_execution():
         tool.execute({"expression": "__import__('os').system('echo bad')"})
     )
     assert result.ok is False
+
+
+@pytest.mark.asyncio
+async def test_runtime_traces_agent_model_and_tool_without_payloads(tmp_path):
+    class RecordingTracing:
+        def __init__(self):
+            self.spans = []
+
+        @contextmanager
+        def span(self, name, **attributes):
+            self.spans.append((name, attributes))
+            yield None
+
+    database = Database(tmp_path / "trace.db")
+    await database.initialize()
+    session = await database.create_session()
+    registry = ToolRegistry()
+    registry.register(CalculatorTool())
+    tracing = RecordingTracing()
+
+    await AgentRuntime(
+        database, FakeModel(), registry, max_steps=3, tracing=tracing
+    ).run(session["id"], "calculate 2+3")
+
+    assert [name for name, _ in tracing.spans] == [
+        "agent.run",
+        "model.complete",
+        "tool.execute",
+        "model.complete",
+    ]
+    assert all("arguments" not in attributes for _, attributes in tracing.spans)

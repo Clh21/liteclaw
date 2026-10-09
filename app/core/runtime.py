@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +45,7 @@ class AgentRuntime:
         memory_writer: MemoryWriter | None = None,
         workspace_root: Path | None = None,
         require_approval: bool = False,
+        tracing=None,
     ):
         self.database = database
         self.model = model
@@ -53,6 +55,14 @@ class AgentRuntime:
         self.memory_writer = memory_writer or MemoryWriter(database)
         self.workspace_root = workspace_root or Path.cwd()
         self.require_approval = require_approval
+        self.tracing = tracing
+
+    def _span(self, name: str, **attributes):
+        return (
+            self.tracing.span(name, **attributes)
+            if self.tracing is not None
+            else nullcontext()
+        )
 
     async def run(
         self,
@@ -67,7 +77,8 @@ class AgentRuntime:
         if emitter:
             emitter.emit("run_started", run_id=run_id, session_id=session_id)
         log_event("run.start", run_id=run_id, session_id=session_id)
-        return await self._loop(session_id, user_text, run_id, [], 1, emitter)
+        with self._span("agent.run", run_id=run_id, session_id=session_id):
+            return await self._loop(session_id, user_text, run_id, [], 1, emitter)
 
     async def resolve_approval(
         self,
@@ -99,9 +110,12 @@ class AgentRuntime:
             (item["content"] for item in reversed(history) if item["role"] == "user"),
             "",
         )
-        return await self._loop(
-            session_id, user_text, run["id"], trace, step + 1, emitter
-        )
+        with self._span(
+            "agent.run", run_id=run["id"], session_id=session_id, resumed=True
+        ):
+            return await self._loop(
+                session_id, user_text, run["id"], trace, step + 1, emitter
+            )
 
     async def _loop(
         self,
@@ -128,9 +142,15 @@ class AgentRuntime:
                 )
                 if emitter:
                     emitter.emit("model_started", run_id=run_id, step=step)
-                response = await self.model.complete(
-                    context.messages, self.registry.schemas_for_model()
-                )
+                with self._span(
+                    "model.complete",
+                    run_id=run_id,
+                    session_id=session_id,
+                    step=step,
+                ):
+                    response = await self.model.complete(
+                        context.messages, self.registry.schemas_for_model()
+                    )
                 log_event(
                     "model.end",
                     run_id=run_id,
@@ -262,11 +282,18 @@ class AgentRuntime:
                         step=step,
                         tool_name=call["name"],
                     )
-                result = await self.registry.execute(
-                    call["name"],
-                    call["arguments"],
-                    ToolContext(session_id, self.workspace_root),
-                )
+                with self._span(
+                    "tool.execute",
+                    run_id=run_id,
+                    session_id=session_id,
+                    step=step,
+                    tool_name=call["name"],
+                ):
+                    result = await self.registry.execute(
+                        call["name"],
+                        call["arguments"],
+                        ToolContext(session_id, self.workspace_root),
+                    )
             observation = json.dumps(result.model_dump(), ensure_ascii=False)
             await self.database.append_message(
                 session_id, "tool", observation, tool_call_id=call["id"]

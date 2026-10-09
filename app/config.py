@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     task_max_concurrency: int = Field(default=2, ge=1, le=20)
     task_shutdown_timeout: float = Field(default=15.0, ge=1, le=120)
     task_lease_seconds: int = Field(default=300, ge=10, le=86400)
+    otlp_endpoint: str = ""
+    otlp_headers: str = Field(default="", repr=False)
+    otel_service_name: str = "liteclaw"
 
     @property
     def database_path(self) -> Path:

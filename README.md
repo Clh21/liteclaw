@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.6 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v0.7 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -97,6 +97,19 @@ docker compose -f compose.yaml -f compose.pgvector.yaml up --build
 
 该部署使用固定的 `pgvector/pgvector:0.8.7-pg17-bookworm` 镜像和独立数据卷。当前表使用无固定维度的 `vector` 列以兼容不同 embedding provider；达到大规模数据后，应按实际维度增加 HNSW 或 IVFFlat 索引。
 
+## OpenTelemetry 追踪（v0.7）
+
+安装 telemetry extra 并配置 OTLP HTTP traces endpoint 后，LiteClaw 会导出 `http.request`、`agent.run`、`model.complete` 和 `tool.execute` spans。它们共享 trace context，API 响应通过 `X-Trace-ID` 返回定位标识。span 不记录 prompt、工具参数、API Key 或 cookie。
+
+```powershell
+python -m pip install -e ".[telemetry]"
+$env:LITECLAW_OTLP_ENDPOINT='http://127.0.0.1:4318/v1/traces'
+$env:LITECLAW_OTEL_SERVICE_NAME='liteclaw-local'
+python -m liteclaw
+```
+
+需要 collector 鉴权时，可设置逗号分隔的 `LITECLAW_OTLP_HEADERS`。未配置 endpoint 时 health 显示 `tracing=disabled`；依赖缺失或初始化失败时显示 `unavailable`，主 API 仍可运行。
+
 ## API 示例
 
 ```powershell
@@ -191,4 +204,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.6 本地验收为主环境 `82 passed`，干净环境 `81 passed, 1 skipped`（仅缺少可选 sqlite-vec），并覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 适配与降级和部署文件。真实 HTTP 验证确认 PostgreSQL 不可达时 health 显示 `pgvector=unavailable`，聊天仍正常工作。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 服务，pgvector 数据库集成使用模拟连接验证 SQL 和状态机；由于未配置真实模型 API Key，真实 provider 的在线聊天与 tool calling 尚未做端到端验证。
+当前 v0.7 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+
+当前开发环境完整测试为 `88 passed`；不安装可选 sqlite-vec 扩展的干净环境为 `87 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。

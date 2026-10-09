@@ -60,6 +60,20 @@ def test_fake_mode_planner_api():
             assert response.json()["tasks"]
 
 
+def test_fake_mode_does_not_use_scripted_responses_for_memory_extraction(tmp_path):
+    app = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            db_path="planner.db",
+            model_provider="fake",
+            api_key="ambient-key-must-not-enable-extraction",
+            tasks_enabled=False,
+        )
+    )
+
+    assert app.state.runtime.memory_writer.extractor_model is None
+
+
 def test_planner_api_returns_202_then_completes_after_approval():
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "note.txt"
