@@ -49,6 +49,15 @@ from app.tools.builtin.calculator import CalculatorTool
 from app.tools.builtin.datetime_tool import DateTimeTool
 from app.tools.builtin.file_tools import FileReadTool, FileWriteTool
 from app.tools.builtin.shell import ShellRunTool
+from app.tools.desktop.manager import DesktopManager
+from app.tools.desktop.tools import (
+    DesktopClickTool,
+    DesktopHotkeyTool,
+    DesktopInfoTool,
+    DesktopScreenshotTool,
+    DesktopScrollTool,
+    DesktopTypeTool,
+)
 from app.tools.mcp.client import MCPClientManager
 from app.tools.registry import ToolRegistry
 
@@ -74,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.browser_headless,
         state_store=browser_state_store,
     )
+    desktop = DesktopManager(settings.workspace_root, settings.desktop_enabled)
     mcp_manager = MCPClientManager(settings.mcp_config_path)
     for tool in (
         BrowserOpenTool,
@@ -83,6 +93,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         BrowserScreenshotTool,
     ):
         registry.register(tool(browser))
+    if settings.desktop_enabled:
+        for tool in (
+            DesktopInfoTool,
+            DesktopScreenshotTool,
+            DesktopClickTool,
+            DesktopTypeTool,
+            DesktopHotkeyTool,
+            DesktopScrollTool,
+        ):
+            registry.register(tool(desktop))
     if settings.model_provider == "fake":
         model = FakeModel()
     elif settings.model_provider == "agentscope" and settings.api_key:
@@ -189,7 +209,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="0.8.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="0.9.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -218,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.embeddings = embeddings
     application.state.pgvector = pgvector
     application.state.browser = browser
+    application.state.desktop = desktop
     application.state.mcp = mcp_manager
     application.state.task_repository = task_repository
     application.state.task_service = task_service
@@ -283,6 +304,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "embedding": embeddings.stats if embeddings else "disabled",
                 "pgvector": pgvector.status,
                 "tracing": tracing.status,
+                "desktop": desktop.status,
                 "tasks": scheduler.health(),
             }
         response.status_code = 503

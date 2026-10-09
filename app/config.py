@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     memory_top_k: int = Field(default=8, ge=1)
     browser_headless: bool = True
     browser_state_key: str = Field(default="", repr=False)
+    desktop_enabled: bool = False
     require_approval: bool = True
     log_level: str = "INFO"
     mcp_servers_path: Path = Path("mcp_servers.yaml")

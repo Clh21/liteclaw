@@ -131,3 +131,9 @@ python -m app.model_doctor
 ```
 
 检查结果应依次显示 `configuration`、`chat`、`tool_calling` 和 `structured_json` 为 `ok=true`，总结果也为 `ok=true`。输出不包含 API Key 和模型回复正文。该步骤会发出三次短请求。
+
+## 14. 展示受控桌面工具
+
+安装 desktop extra，在 `.env` 中设置 `LITECLAW_DESKTOP_ENABLED=true` 并保持 `LITECLAW_REQUIRE_APPROVAL=true`。请求助手保存桌面截图或点击指定坐标时，首次响应应为 HTTP 202；检查工具名和坐标后调用 approve API，操作才会发生。把鼠标移动到主屏幕左上角可触发 PyAutoGUI fail-safe。
+
+截图会写入 `data/desktop_screenshots/<session_id>`。演示结束后把 `LITECLAW_DESKTOP_ENABLED` 恢复为 `false`。
