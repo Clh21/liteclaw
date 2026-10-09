@@ -1,7 +1,9 @@
 import json
 import re
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from hashlib import sha256
 from importlib.resources import files
 from pathlib import Path
 from uuid import uuid4
@@ -40,6 +42,68 @@ class Database:
             return True
         except (OSError, aiosqlite.Error):
             return False
+
+    async def create_user(self, username: str, role: str) -> dict:
+        user = {
+            "id": uuid4().hex,
+            "username": username,
+            "role": role,
+            "active": 1,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        async with self.connection() as connection:
+            await connection.execute(
+                "INSERT INTO users(id,username,role,active,created_at) VALUES(:id,:username,:role,:active,:created_at)",
+                user,
+            )
+            await connection.commit()
+        return user
+
+    async def create_api_token(self, user_id: str, label: str | None = None) -> dict:
+        token = "lc_" + secrets.token_urlsafe(32)
+        record = {
+            "id": uuid4().hex,
+            "user_id": user_id,
+            "token_hash": sha256(token.encode()).hexdigest(),
+            "label": label,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT id FROM users WHERE id=? AND active=1", (user_id,)
+            )
+            if await cursor.fetchone() is None:
+                raise KeyError("user_not_found")
+            await connection.execute(
+                "INSERT INTO api_tokens(id,user_id,token_hash,label,created_at) VALUES(:id,:user_id,:token_hash,:label,:created_at)",
+                record,
+            )
+            await connection.commit()
+        return {key: value for key, value in record.items() if key != "token_hash"} | {
+            "token": token
+        }
+
+    async def authenticate_api_token(self, token: str) -> dict | None:
+        digest = sha256(token.encode()).hexdigest()
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                """SELECT users.id,users.username,users.role
+                FROM api_tokens JOIN users ON users.id=api_tokens.user_id
+                WHERE api_tokens.token_hash=? AND api_tokens.revoked_at IS NULL
+                  AND users.active=1""",
+                (digest,),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def revoke_api_token(self, token_id: str) -> bool:
+        async with self.connection() as connection:
+            cursor = await connection.execute(
+                "UPDATE api_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), token_id),
+            )
+            await connection.commit()
+        return cursor.rowcount == 1
 
     @asynccontextmanager
     async def connection(self):

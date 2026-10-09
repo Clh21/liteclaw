@@ -137,3 +137,7 @@ python -m app.model_doctor
 安装 desktop extra，在 `.env` 中设置 `LITECLAW_DESKTOP_ENABLED=true` 并保持 `LITECLAW_REQUIRE_APPROVAL=true`。请求助手保存桌面截图或点击指定坐标时，首次响应应为 HTTP 202；检查工具名和坐标后调用 approve API，操作才会发生。把鼠标移动到主屏幕左上角可触发 PyAutoGUI fail-safe。
 
 截图会写入 `data/desktop_screenshots/<session_id>`。演示结束后把 `LITECLAW_DESKTOP_ENABLED` 恢复为 `false`。
+
+## 15. 展示 RBAC
+
+设置 `LITECLAW_RBAC_ENABLED=true` 和一个强随机 `LITECLAW_SERVER_API_KEY`。使用该管理员 Key 创建 `viewer` 和 `user`，分别签发 Token。viewer 可以读取会话但创建会话返回 403；user 可以创建会话；撤销 Token 后再次访问返回 401。Token 明文只会出现在签发响应中。

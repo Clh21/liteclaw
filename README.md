@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v0.9 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持 API Key 访问控制、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v1.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持多用户 API Token 与 RBAC、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -49,6 +49,25 @@ docker compose up --build
 ```
 
 镜像内使用非 root 用户运行，并预装 Playwright Chromium。可用 `LITECLAW_PORT` 改变宿主机暴露端口；容器内部固定监听 8000。
+
+## 多用户 Token 与 RBAC（v1.0）
+
+设置 `LITECLAW_RBAC_ENABLED=true` 后，`LITECLAW_SERVER_API_KEY` 成为引导管理员密钥。`admin` 可管理用户和 Token，`user` 可使用普通读写接口，`viewer` 只允许 GET、HEAD 和 OPTIONS。Token 只在创建时返回一次，SQLite 只保存 SHA-256 摘要。
+
+```powershell
+$admin = @{Authorization='Bearer bootstrap-admin-key'}
+$user = Invoke-RestMethod -Headers $admin -Method Post `
+  -Uri http://127.0.0.1:8000/v1/admin/users `
+  -ContentType application/json `
+  -Body '{"username":"operator","role":"user"}'
+$issued = Invoke-RestMethod -Headers $admin -Method Post `
+  -Uri "http://127.0.0.1:8000/v1/admin/users/$($user.id)/tokens" `
+  -ContentType application/json `
+  -Body '{"label":"local-cli"}'
+$issued.token
+```
+
+撤销使用 `DELETE /v1/admin/tokens/{token_id}`。关闭 RBAC 时继续兼容原来的单服务 Key 行为。v1.0 提供角色级访问控制；跨用户的数据归属隔离在 v1.1 完成。
 
 ## 浏览器登录态持久化（v0.5）
 
@@ -230,6 +249,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v0.9 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+当前 v1.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC 与 Token 撤销、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
 
-当前开发环境完整测试为 `108 passed`；不安装可选 sqlite-vec 扩展时预期为 `107 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。
+当前开发环境完整测试为 `112 passed`；不安装可选 sqlite-vec 扩展时预期为 `111 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。

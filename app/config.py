@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     base_url: str = "https://api.openai.com/v1"
     api_key: str = Field(default="", repr=False)
     server_api_key: str = Field(default="", repr=False)
+    rbac_enabled: bool = False
     db_path: Path = Path("data/liteclaw.db")
     workspace_root: Path = Field(default_factory=Path.cwd)
     max_agent_steps: int = Field(default=8, ge=1, le=100)
