@@ -21,6 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
+    owner_id TEXT,
     title TEXT,
     agent_id TEXT NOT NULL DEFAULT 'main',
     summary TEXT,
@@ -43,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, 
 
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
+    owner_id TEXT,
     agent_id TEXT NOT NULL,
     session_id TEXT,
     content TEXT NOT NULL,

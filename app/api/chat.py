@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from app.api.access import creation_owner, owner_scope, require_session
 from app.core.runtime import MaxStepsExceeded, PendingRunResult
 from app.models.openai_compatible import ModelAuthError, ModelUnavailable
 
@@ -19,7 +20,11 @@ async def chat(body: ChatRequest, request: Request, response: Response):
     database = request.app.state.database
     session_id = body.session_id
     if session_id is None:
-        session_id = (await database.create_session())["id"]
+        session_id = (await database.create_session(owner_id=creation_owner(request)))[
+            "id"
+        ]
+    else:
+        await require_session(request, session_id)
     planned = body.plan and request.app.state.settings.enable_planner
     try:
         result = (
@@ -65,7 +70,9 @@ async def chat(body: ChatRequest, request: Request, response: Response):
 
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str, request: Request):
-    run = await request.app.state.database.get_run(run_id)
+    run = await request.app.state.database.get_run_for_owner(
+        run_id, owner_scope(request)
+    )
     if run is None:
         raise HTTPException(404, detail={"code": "run_not_found"})
     return {

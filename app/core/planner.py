@@ -87,6 +87,8 @@ class Planner:
         index = state["next_index"]
         parent = await self.database.get_run(run_id)
         session_id = parent["session_id"]
+        parent_session = await self.database.get_session(session_id)
+        owner_id = parent_session["owner_id"] if parent_session else None
         try:
             if completed_worker is not None:
                 task = plan.tasks[index]
@@ -105,7 +107,7 @@ class Planner:
                 )
             for task in plan.tasks[index:]:
                 worker_session = await self.database.create_session(
-                    title=f"Worker {task.id}: {task.goal[:80]}"
+                    title=f"Worker {task.id}: {task.goal[:80]}", owner_id=owner_id
                 )
                 dependencies = "\n".join(
                     f"{name}: {next(item['answer'] for item in results if item['id'] == name)}"

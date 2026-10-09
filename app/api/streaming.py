@@ -2,9 +2,10 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from app.api.access import creation_owner, require_session
 from app.api.chat import ChatRequest
 from app.core.events import RunEventEmitter
 from app.core.runtime import PendingRunResult
@@ -31,9 +32,11 @@ async def stream_chat(body: ChatRequest, request: Request):
     database = request.app.state.database
     session_id = body.session_id
     if session_id is None:
-        session_id = (await database.create_session())["id"]
-    elif await database.get_session(session_id) is None:
-        raise HTTPException(404, detail={"code": "session_not_found"})
+        session_id = (await database.create_session(owner_id=creation_owner(request)))[
+            "id"
+        ]
+    else:
+        await require_session(request, session_id)
 
     queue: asyncio.Queue[dict] = asyncio.Queue()
     emitter = RunEventEmitter(queue.put_nowait)
