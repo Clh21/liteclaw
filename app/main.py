@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
+from app.api.admin import router as admin_router
 from app.api.approvals import router as approvals_router
 from app.api.browser import router as browser_router
 from app.api.chat import router as chat_router
@@ -29,7 +30,7 @@ from app.models.agentscope_adapter import AgentScopeModelAdapter
 from app.models.fake import FakeModel
 from app.models.openai_compatible import OpenAICompatibleModel
 from app.observability.tracing import Tracing
-from app.security import credentials_valid
+from app.security import authenticate, credentials_valid
 from app.skills.loader import SkillLoader
 from app.skills.selector import SkillSelector
 from app.tasks.models import utc_now
@@ -64,6 +65,8 @@ from app.tools.registry import ToolRegistry
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    if settings.rbac_enabled and not settings.server_api_key:
+        raise ValueError("LITECLAW_SERVER_API_KEY is required when RBAC is enabled")
     tracing = Tracing(
         settings.otlp_endpoint, settings.otel_service_name, settings.otlp_headers
     )
@@ -209,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="0.9.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="1.0.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
@@ -258,7 +261,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             http_method=request.method,
             http_path=request.url.path,
         ) as span:
-            if (
+            if settings.rbac_enabled and request.url.path.startswith("/v1"):
+                principal = await authenticate(
+                    request.headers, database, settings.server_api_key
+                )
+                if principal is None:
+                    response = JSONResponse(
+                        status_code=401,
+                        content={"detail": {"code": "unauthorized"}},
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+                elif (
+                    request.url.path.startswith("/v1/admin")
+                    and principal.role != "admin"
+                ) or (
+                    principal.role == "viewer"
+                    and request.method not in {"GET", "HEAD", "OPTIONS"}
+                ):
+                    response = JSONResponse(
+                        status_code=403,
+                        content={"detail": {"code": "forbidden"}},
+                    )
+                else:
+                    request.state.principal = principal
+                    response = await call_next(request)
+            elif (
                 settings.server_api_key
                 and request.url.path.startswith("/v1")
                 and not credentials_valid(request.headers, settings.server_api_key)
@@ -285,6 +312,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             return response
 
+    application.include_router(admin_router)
     application.include_router(sessions_router)
     application.include_router(browser_router)
     application.include_router(chat_router)
