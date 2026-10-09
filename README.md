@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v1.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持多用户 API Token 与 RBAC、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v1.0.1 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持多用户 API Token 与 RBAC、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -249,6 +249,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v1.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC 与 Token 撤销、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+当前 v1.0.1 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC 与 Token 撤销、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
 
 当前开发环境完整测试为 `112 passed`；不安装可选 sqlite-vec 扩展时预期为 `111 passed, 1 skipped`。跳过项只覆盖 sqlite-vec 原生扩展，Python 余弦降级路径仍通过测试。

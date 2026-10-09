@@ -212,7 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="1.0.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="1.0.1", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.registry = registry
