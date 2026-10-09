@@ -1,4 +1,3 @@
-import json
 import re
 
 from pydantic import BaseModel, Field
@@ -8,6 +7,7 @@ from app.memory.embeddings import CachedEmbeddings
 from app.memory.repository import Database
 from app.memory.summarizer import SessionSummarizer
 from app.models.base import BaseChatModel
+from app.models.structured import parse_json_array
 
 
 class MemoryCandidate(BaseModel):
@@ -77,9 +77,9 @@ class MemoryWriter:
                     ],
                     [],
                 )
-                raw = json.loads(response.content or "[]")
-                if not isinstance(raw, list):
-                    raise TypeError("Memory extraction must return an array")
+                raw = parse_json_array(
+                    response.content or "", wrapper_keys=("memories", "items")
+                )
                 candidates = [MemoryCandidate.model_validate(item) for item in raw[:5]]
             except Exception as error:  # noqa: BLE001 - extraction is best effort
                 log_event("memory.extract_unavailable", error=type(error).__name__)

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.runtime import AgentRunResult, AgentRuntime, PendingRunResult
 from app.memory.repository import Database
 from app.models.base import BaseChatModel
+from app.models.structured import parse_json_object
 
 
 class PlanTask(BaseModel):
@@ -51,7 +52,9 @@ class Planner:
             ],
             [],
         )
-        plan = Plan.model_validate(json.loads(plan_response.content or "{}"))
+        plan = Plan.model_validate(
+            parse_json_object(plan_response.content or "", wrapper_keys=("plan",))
+        )
         run_id = await self.database.create_run(session_id)
         await self.database.append_message(session_id, "user", request)
         await self.database.save_planner_state(run_id, plan.model_dump(), [], 0)

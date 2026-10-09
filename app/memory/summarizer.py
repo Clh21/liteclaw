@@ -3,6 +3,7 @@ import json
 from app.logging import log_event
 from app.memory.repository import Database
 from app.models.base import BaseChatModel
+from app.models.structured import parse_json_object
 
 SUMMARY_KEYS = (
     "user_goals",
@@ -76,10 +77,10 @@ class SessionSummarizer:
                     ],
                     [],
                 )
-                raw = json.loads(response.content or "{}")
-                if not isinstance(raw, dict) or any(
-                    not isinstance(raw.get(key), list) for key in SUMMARY_KEYS
-                ):
+                raw = parse_json_object(
+                    response.content or "", wrapper_keys=("summary",)
+                )
+                if any(not isinstance(raw.get(key), list) for key in SUMMARY_KEYS):
                     raise TypeError("Summary must contain five arrays")
                 extracted = raw
             except Exception as error:  # noqa: BLE001 - summary has a deterministic fallback

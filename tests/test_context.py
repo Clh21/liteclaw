@@ -5,8 +5,20 @@ from pathlib import Path
 import pytest
 
 from app.core.context import ContextBuilder
+from app.core.messages import ModelResponse
 from app.memory.repository import Database
 from app.memory.summarizer import SessionSummarizer
+
+
+class WrappedSummaryModel:
+    async def complete(self, messages, tools):
+        return ModelResponse(
+            content=(
+                'Summary:\n```json\n{"summary":{"user_goals":["Ship Atlas"],'
+                '"decisions":[],"important_facts":[],"artifacts":[],'
+                '"open_items":[]}}\n```'
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -74,3 +86,18 @@ async def test_summary_runs_only_after_new_message_threshold():
         assert (await database.get_session(session["id"]))[
             "summarized_message_count"
         ] == 6
+
+
+@pytest.mark.asyncio
+async def test_summary_accepts_fenced_wrapper_from_compatible_model(tmp_path):
+    database = Database(tmp_path / "summary.db")
+    await database.initialize()
+    session = await database.create_session()
+    await database.append_message(session["id"], "user", "Ship Atlas")
+
+    await SessionSummarizer(
+        database, threshold=1, model=WrappedSummaryModel()
+    ).maybe_summarize(session["id"])
+
+    summary = json.loads((await database.get_session(session["id"]))["summary"])
+    assert summary["user_goals"] == ["Ship Atlas"]

@@ -11,7 +11,10 @@ from app.memory.writer import MemoryWriter
 class Extractor:
     async def complete(self, messages, tools):
         return ModelResponse(
-            content='[{"content":"User prefers Vim","kind":"preference","importance":0.9}]'
+            content=(
+                '```json\n{"memories":[{"content":"User prefers Vim",'
+                '"kind":"preference","importance":0.9}]}\n```'
+            )
         )
 
 

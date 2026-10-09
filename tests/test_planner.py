@@ -24,7 +24,12 @@ async def test_planner_runs_workers_in_independent_sessions():
         model = FakeModel(
             [
                 ModelResponse(
-                    content='{"tasks":[{"id":"t1","goal":"Research topic A","depends_on":[]},{"id":"t2","goal":"Compare topic B","depends_on":["t1"]}]}'
+                    content=(
+                        '```json\n{"plan":{"tasks":['
+                        '{"id":"t1","goal":"Research topic A","depends_on":[]},'
+                        '{"id":"t2","goal":"Compare topic B",'
+                        '"depends_on":["t1"]}]}}\n```'
+                    )
                 ),
                 ModelResponse(content="A result"),
                 ModelResponse(content="B result"),
