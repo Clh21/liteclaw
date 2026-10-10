@@ -9,11 +9,13 @@ from app.api.admin import router as admin_router
 from app.api.approvals import router as approvals_router
 from app.api.browser import router as browser_router
 from app.api.chat import router as chat_router
+from app.api.chat_records import router as chat_records_router
 from app.api.evals import router as evals_router
 from app.api.memory import router as memory_router
 from app.api.sessions import router as sessions_router
 from app.api.streaming import router as streaming_router
 from app.api.tasks import router as tasks_router
+from app.chat_records.repository import ChatRecordRepository
 from app.config import Settings
 from app.core.context import ContextBuilder
 from app.core.planner import Planner
@@ -71,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.otlp_endpoint, settings.otel_service_name, settings.otlp_headers
     )
     database = Database(settings.database_path)
+    chat_record_repository = ChatRecordRepository(database)
     registry = ToolRegistry()
     registry.register(CalculatorTool())
     registry.register(DateTimeTool())
@@ -215,6 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title="LiteClaw", version="1.1.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
+    application.state.chat_record_repository = chat_record_repository
     application.state.registry = registry
     application.state.runtime = runtime
     application.state.planner = Planner(
@@ -322,6 +326,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sessions_router)
     application.include_router(browser_router)
     application.include_router(chat_router)
+    application.include_router(chat_records_router)
     application.include_router(memory_router)
     application.include_router(approvals_router)
     application.include_router(tasks_router)

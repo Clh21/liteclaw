@@ -179,3 +179,39 @@ CREATE TABLE IF NOT EXISTS eval_results (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(eval_run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_sources (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT,
+    scope_key TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    format TEXT NOT NULL,
+    conversation TEXT,
+    self_sender TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    file_digest TEXT NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    first_at TEXT,
+    last_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(scope_key, file_digest)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_sources_owner ON chat_sources(owner_id, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES chat_sources(id) ON DELETE CASCADE,
+    owner_id TEXT,
+    scope_key TEXT NOT NULL,
+    conversation TEXT NOT NULL,
+    sent_at TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_row INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    UNIQUE(scope_key, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_scope_time
+ON chat_messages(scope_key, sent_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_source_time
+ON chat_messages(source_id, sent_at);
