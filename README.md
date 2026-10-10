@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v1.1.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务和评测接口。服务支持多用户 API Token、RBAC 与用户数据隔离、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v1.2.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务、评测和聊天记录分析接口。服务支持多用户 API Token、RBAC 与用户数据隔离、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -74,6 +74,30 @@ $issued.token
 启用 RBAC 后，会话和长期记忆会记录创建者。运行记录、审批、浏览器登录态和持久化任务通过会话继承归属。`user` 与 `viewer` 只能读取自己的数据，越权访问统一返回 404；`admin` 可以跨用户查看和管理，并可在创建会话或记忆时传入已存在的 `owner_id` 代用户导入数据。Eval 案例与运行可能包含用户提示词，因此 `/evals` 和 `/v1/evals/*` 只允许管理员访问。
 
 从旧版本升级时，数据库会自动增加归属字段和索引。升级前已经存在的数据没有可确认的创建者，保持 `owner_id=NULL`，仅管理员可访问。关闭 RBAC 时不应用用户范围过滤，原来的单用户行为保持兼容。
+
+## 聊天记录分析与周月年报（v1.2）
+
+启动后访问 `http://127.0.0.1:8000/chat-records`。若服务启用了 API Key 或 RBAC，在页面顶部填写服务密钥或自己的用户 Token；该值只放在当前标签页的 `sessionStorage`。选择自己导出的 TXT、CSV 或 JSON 文件，填写记录里代表自己的昵称。TXT 需要填写会话名称；CSV/JSON 可以从记录中的会话字段读取。支持 UTF-8 和 GB18030，导入时按所选时区把时间转为 UTC。单文件上限 10 MiB、50,000 条。原始导出文件不会保存，解析后的消息存入本地 SQLite；可以在页面删除来源及其消息。
+
+TXT 示例（一行一条）：
+
+```text
+2026-10-01 09:30 我: 我来写方案
+2026-10-02 10:00 我: 方案已完成
+2026-10-03 11:00 小王: 下周再检查报告
+```
+
+CSV 使用 `time,sender,content,conversation` 列，JSON 使用同名字段组成的数组；解析器也接受常见的中文列名。导入后可选来源、联系人进行分析，或选择日期生成周报、月报、年报。分析会统计消息与参与者，列出已完成事项和仍待核实的事项，并给出证据消息 ID。配置了可用模型时，还会尝试生成有证据引用的沟通观察；模型不可用或输出无效时仍返回确定性统计。模型观察仅根据记录中的可见行为描述，不能据此断定他人的人格、动机或心理状况。配置外部模型时，选中的部分聊天内容会发送给该模型服务。
+
+分析与报告也可使用 `POST /v1/chat-records/analyze`、`POST /v1/chat-records/reports`。上传接口接收原始文件字节，不接收服务器本地路径：
+
+```powershell
+$headers = @{Authorization='Bearer your-token'}
+curl.exe -X POST "http://127.0.0.1:8000/v1/chat-records/import?filename=chat.txt&conversation=项目群&self_sender=我&timezone=Asia/Shanghai" -H "Authorization: Bearer your-token" -H "Content-Type: application/octet-stream" --data-binary "@chat.txt"
+Invoke-RestMethod -Headers $headers -Method Post -Uri http://127.0.0.1:8000/v1/chat-records/reports -ContentType application/json -Body '{"period":"month","anchor_date":"2026-10-10"}'
+```
+
+同一文件再次上传会返回已有来源；多个来源重叠的消息在汇总时只计一次。启用 RBAC 后普通用户只能访问自己的来源，管理员可跨用户查看；`viewer` 不能导入或删除。自动识别的待办只是线索，`needs_confirmation` 表示未从记录中确认完成，使用前应核对原聊天。
 
 ## 浏览器登录态持久化（v0.5）
 
@@ -255,6 +279,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v1.1.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC、跨用户资源隔离与 Token 撤销、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+当前 v1.2.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC、跨用户资源隔离与 Token 撤销、聊天记录导入、分析与周期报告、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
 
 完整测试数量以当前 `pytest -q` 输出为准。不安装可选 sqlite-vec 扩展时会跳过其原生扩展测试，Python 余弦降级路径仍会执行。

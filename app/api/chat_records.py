@@ -10,6 +10,7 @@ from app.api.access import owner_scope, resolve_creation_owner
 from app.chat_records.analysis import (
     add_model_observations,
     analyze_messages,
+    attach_evidence,
     period_bounds,
 )
 from app.chat_records.parser import MAX_BYTES, ImportFormatError, parse_chat_export
@@ -161,9 +162,10 @@ async def analyze_chat_records(body: AnalyzeRequest, request: Request):
             row for row in rows if row["sender"] in {row["self_sender"], body.contact}
         ]
     result = analyze_messages(rows, body.timezone)
-    return await add_model_observations(
+    result = await add_model_observations(
         result, rows, request.app.state.chat_record_model
     )
+    return attach_evidence(result, rows)
 
 
 @router.post("/reports")
@@ -179,6 +181,7 @@ async def create_chat_report(body: ReportRequest, request: Request):
     result = await add_model_observations(
         result, rows, request.app.state.chat_record_model
     )
+    result = attach_evidence(result, rows)
     result.update(
         {
             "period": body.period,

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.api.admin import router as admin_router
 from app.api.approvals import router as approvals_router
@@ -15,6 +15,7 @@ from app.api.memory import router as memory_router
 from app.api.sessions import router as sessions_router
 from app.api.streaming import router as streaming_router
 from app.api.tasks import router as tasks_router
+from app.chat_records.dashboard import HTML as CHAT_RECORDS_HTML
 from app.chat_records.repository import ChatRecordRepository
 from app.config import Settings
 from app.core.context import ContextBuilder
@@ -215,10 +216,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="1.1.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="1.2.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.chat_record_repository = chat_record_repository
+    application.state.chat_record_model = memory_extractor_model
     application.state.registry = registry
     application.state.runtime = runtime
     application.state.planner = Planner(
@@ -332,6 +334,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(tasks_router)
     application.include_router(streaming_router)
     application.include_router(evals_router)
+
+    @application.get("/chat-records", response_class=HTMLResponse)
+    async def chat_records_page() -> str:
+        return CHAT_RECORDS_HTML
 
     @application.get("/health")
     async def health(response: Response) -> dict:

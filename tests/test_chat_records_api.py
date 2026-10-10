@@ -62,10 +62,20 @@ def test_overlapping_exports_survive_source_deletion(tmp_path):
         second = upload(client, data=second_data).json()
         assert second["message_count"] == 4
         assert len(client.get("/v1/chat-records/messages").json()["messages"]) == 4
-        assert len(client.get("/v1/chat-records/messages", params={"source_id": second["id"]}).json()["messages"]) == 4
+        assert (
+            len(
+                client.get(
+                    "/v1/chat-records/messages", params={"source_id": second["id"]}
+                ).json()["messages"]
+            )
+            == 4
+        )
         client.delete(f"/v1/chat-records/sources/{first['id']}")
         assert len(client.get("/v1/chat-records/messages").json()["messages"]) == 4
-        assert client.post("/v1/chat-records/analyze", json={}).json()["message_count"] == 4
+        assert (
+            client.post("/v1/chat-records/analyze", json={}).json()["message_count"]
+            == 4
+        )
 
 
 def _user_token(client, admin, name):
@@ -125,6 +135,8 @@ def test_analysis_and_period_report_are_evidence_based(tmp_path):
         assert body["message_count"] == 3
         assert body["completed_items"][0]["is_self"] is True
         assert body["open_items"][0]["status"] == "needs_confirmation"
+        evidence_id = body["completed_items"][0]["evidence_ids"][0]
+        assert body["evidence"][evidence_id]["content"] == "我来写方案"
         report = client.post(
             "/v1/chat-records/reports",
             json={
@@ -165,3 +177,17 @@ def test_analysis_cannot_access_other_users_source(tmp_path):
             ).status_code
             == 404
         )
+
+
+def test_chat_records_page_has_import_and_report_controls(tmp_path):
+    with TestClient(app_for(tmp_path, rbac=True)) as client:
+        response = client.get("/chat-records")
+        assert response.status_code == 200
+        for marker in (
+            'id="upload"',
+            'id="sources"',
+            'id="analyze"',
+            'id="report"',
+            'id="token"',
+        ):
+            assert marker in response.text

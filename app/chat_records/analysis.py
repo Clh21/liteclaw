@@ -187,3 +187,26 @@ async def add_model_observations(result: dict, rows: list[dict], model) -> dict:
     except Exception as error:  # noqa: BLE001 - model interpretation is optional
         log_event("chat_records.analysis_unavailable", error=type(error).__name__)
     return result
+
+
+def attach_evidence(result: dict, rows: list[dict]) -> dict:
+    referenced = {
+        item_id
+        for section in (
+            result["open_items"],
+            result["completed_items"],
+            *result["communication"].values(),
+        )
+        for item in section
+        for item_id in item["evidence_ids"]
+    }
+    result["evidence"] = {
+        row["id"]: {
+            "sender": row["sender"],
+            "sent_at": row["sent_at"],
+            "content": row["content"],
+        }
+        for row in rows
+        if row["id"] in referenced
+    }
+    return result
