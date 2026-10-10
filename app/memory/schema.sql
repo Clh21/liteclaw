@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content TEXT NOT NULL,
     source_row INTEGER NOT NULL,
     fingerprint TEXT NOT NULL,
-    UNIQUE(scope_key, fingerprint)
+    UNIQUE(source_id, fingerprint)
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_scope_time
 ON chat_messages(scope_key, sent_at);

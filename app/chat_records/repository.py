@@ -131,35 +131,46 @@ class ChatRecordRepository:
         conversation: str | None = None,
         start_at: str | None = None,
         end_at: str | None = None,
-        limit: int = 100,
+        limit: int | None = 100,
         offset: int = 0,
     ) -> list[dict]:
         clauses = []
         parameters: list[object] = []
         if owner_id is not None:
-            clauses.append("owner_id=?")
+            clauses.append("m.owner_id=?")
             parameters.append(owner_id)
         for field, value in (
             ("source_id", source_id),
             ("conversation", conversation),
         ):
             if value is not None:
-                clauses.append(f"{field}=?")
+                clauses.append(f"m.{field}=?")
                 parameters.append(value)
         if start_at:
-            clauses.append("sent_at>=?")
+            clauses.append("m.sent_at>=?")
             parameters.append(start_at)
         if end_at:
-            clauses.append("sent_at<?")
+            clauses.append("m.sent_at<?")
             parameters.append(end_at)
+        if source_id is None:
+            clauses.append(
+                "m.id=(SELECT MIN(d.id) FROM chat_messages d "
+                "WHERE d.scope_key=m.scope_key AND d.fingerprint=m.fingerprint)"
+            )
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         async with self.database.connection() as connection:
-            cursor = await connection.execute(
-                "SELECT * FROM chat_messages"
+            query = (
+                "SELECT m.*,s.self_sender FROM chat_messages m "
+                "JOIN chat_sources s ON s.id=m.source_id"
                 + where
-                + " ORDER BY sent_at,id LIMIT ? OFFSET ?",
-                [*parameters, limit, offset],
+                + " ORDER BY m.sent_at,m.id"
             )
+            if limit is None:
+                cursor = await connection.execute(query, parameters)
+            else:
+                cursor = await connection.execute(
+                    query + " LIMIT ? OFFSET ?", [*parameters, limit, offset]
+                )
             rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 

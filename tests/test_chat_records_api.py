@@ -55,6 +55,19 @@ def test_import_list_duplicate_delete_and_atomic_invalid(tmp_path):
         assert client.get("/v1/chat-records/messages").json()["messages"] == []
 
 
+def test_overlapping_exports_survive_source_deletion(tmp_path):
+    with TestClient(app_for(tmp_path)) as client:
+        first = upload(client).json()
+        second_data = sample() + "\n2026-10-04 12:00 我: 新增记录".encode()
+        second = upload(client, data=second_data).json()
+        assert second["message_count"] == 4
+        assert len(client.get("/v1/chat-records/messages").json()["messages"]) == 4
+        assert len(client.get("/v1/chat-records/messages", params={"source_id": second["id"]}).json()["messages"]) == 4
+        client.delete(f"/v1/chat-records/sources/{first['id']}")
+        assert len(client.get("/v1/chat-records/messages").json()["messages"]) == 4
+        assert client.post("/v1/chat-records/analyze", json={}).json()["message_count"] == 4
+
+
 def _user_token(client, admin, name):
     user = client.post(
         "/v1/admin/users", headers=admin, json={"username": name, "role": "user"}
@@ -98,4 +111,57 @@ def test_chat_records_respect_owner(tmp_path):
         assert (
             len(client.get("/v1/chat-records/sources", headers=admin).json()["sources"])
             == 1
+        )
+
+
+def test_analysis_and_period_report_are_evidence_based(tmp_path):
+    with TestClient(app_for(tmp_path)) as client:
+        source = upload(client).json()
+        analysis = client.post(
+            "/v1/chat-records/analyze", json={"source_id": source["id"]}
+        )
+        assert analysis.status_code == 200
+        body = analysis.json()
+        assert body["message_count"] == 3
+        assert body["completed_items"][0]["is_self"] is True
+        assert body["open_items"][0]["status"] == "needs_confirmation"
+        report = client.post(
+            "/v1/chat-records/reports",
+            json={
+                "period": "month",
+                "anchor_date": "2026-10-09",
+                "source_id": source["id"],
+            },
+        )
+        assert report.status_code == 200
+        assert report.json()["period_start"] == "2026-09-30T16:00:00+00:00"
+        assert report.json()["message_count"] == 3
+        assert report.json()["completed_items"][0]["evidence_ids"]
+
+
+def test_analysis_cannot_access_other_users_source(tmp_path):
+    with TestClient(app_for(tmp_path, rbac=True)) as client:
+        admin = {"Authorization": "Bearer admin-key"}
+        _, alice = _user_token(client, admin, "insights-alice")
+        _, bob = _user_token(client, admin, "insights-bob")
+        source = upload(client, alice).json()
+        assert (
+            client.post(
+                "/v1/chat-records/analyze",
+                headers=bob,
+                json={"source_id": source["id"]},
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/v1/chat-records/reports",
+                headers=bob,
+                json={
+                    "period": "month",
+                    "anchor_date": "2026-10-09",
+                    "source_id": source["id"],
+                },
+            ).status_code
+            == 404
         )
