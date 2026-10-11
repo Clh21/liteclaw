@@ -1,13 +1,58 @@
 # LiteClaw
 
-LiteClaw v1.3.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务、评测和聊天记录分析接口。服务支持多用户 API Token、RBAC 与用户数据隔离、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v1.3.0 是一个**可以调用工具、保存记忆并执行定时任务的个人 AI 助手后端**。你可以通过 FastAPI 接口与它对话，让它在授权范围内读取文件、使用浏览器或 MCP 工具；也可以导入自己导出的聊天记录，查看有原文依据的分析并生成周报、月报和年报。
 
-```text
-Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
-                              ↑               ↓                 ↓
-                        FTS5 + Vector      Skills           Tool Registry
-                        Hybrid Memory                    File / Shell / Browser / MCP
+项目以 API 为主要入口。启动服务后，可以打开 `/docs` 查看交互式 API 文档，打开 `/chat-records` 使用聊天记录工作台，或打开 `/evals` 查看评测页面。Agent 循环、工具注册、上下文构建与记忆检索由本项目实现；AgentScope 是可选的模型适配层。没有真实 AI API Key 时，可以使用 FakeModel 跑通本地工具调用演示，但它不能替代通用语言模型。
+
+## 现在能做什么
+
+| 功能 | 使用方式与结果 | 说明 |
+| --- | --- | --- |
+| 多轮对话与工具调用 | `POST /v1/chat`；自动创建或延续会话，按模型决策调用工具 | 执行步数有上限，运行记录和工具事件保存在 SQLite |
+| 实时执行过程 | `POST /v1/chat/stream` 返回 SSE 事件 | 展示模型、工具、审批与最终结果；当前是步骤流，不是逐 token 输出 |
+| 文件、Shell、浏览器与桌面工具 | 读取工作区文件、计算、获取时间、浏览网页等 | 高风险操作进入审批；桌面工具需额外安装并启用 |
+| 跨会话记忆 | `POST /v1/memory`、`GET /v1/memory/search` | SQLite + FTS5；配置 embedding 后可用向量与关键词混合检索 |
+| 定时任务与复杂任务拆解 | 一次性或固定间隔任务；可选 Planner | 任务重启后仍在；Planner 将复合任务拆成顺序子任务 |
+| 微信等聊天记录分析 | 打开 `/chat-records`，导入 TXT、CSV 或 JSON | 浏览消息、按日期分析沟通与待办线索，下载附原文证据的周/月/年报 |
+| 扩展与管理 | Skills、stdio MCP、多用户 Token/RBAC、Eval、OpenTelemetry | 可选组件未配置时，基础 API 仍可运行 |
+
+聊天记录功能**只处理用户自行取得并导入的文件**，不会连接微信账号、读取微信进程或解密本地数据库。对他人的描述限于导入记录中可观察到的沟通行为；待办线索和模型观察都需要结合原聊天核实。
+
+## 系统如何工作
+
+```mermaid
+flowchart LR
+    U["用户 / API 客户端"] --> API["FastAPI 接口与鉴权"]
+    API --> S["会话与任务调度"]
+    S --> C["Context Builder<br/>近期消息、摘要、Skills、相关记忆"]
+    C --> R["有界 Agent Loop"]
+    R <--> M["模型适配器<br/>OpenAI 兼容 / AgentScope / FakeModel"]
+    R --> A["Tool Registry 与审批"]
+    A --> T["内置工具 / 浏览器 / 桌面 / MCP"]
+    R --> DB["SQLite<br/>会话、运行记录、记忆、任务"]
+    DB --> H["FTS5 与可选向量检索"]
+    H --> C
+    API --> W["聊天记录工作台"]
+    W --> DB
+    W -.->|可选模型观察| M
 ```
+
+普通对话先构建上下文，再进入最多 `LITECLAW_MAX_AGENT_STEPS` 步的 Agent 循环。模型可以回答或请求工具；工具参数先校验，危险动作等待批准，执行结果作为下一步观察返回模型。聊天记录分析是独立入口：先在本地数据库保存规范化消息，再按来源、日期与联系人统计；配置真实模型时才尝试生成有证据引用的叙述性观察。
+
+### 代码目录
+
+| 目录 | 职责 |
+| --- | --- |
+| [`app/api/`](app/api/) | 对话、会话、记忆、任务、审批、聊天记录等 HTTP 接口 |
+| [`app/core/`](app/core/) | Agent 循环、上下文构建、Planner 与事件 |
+| [`app/models/`](app/models/) | 真实模型、AgentScope 与 FakeModel 适配器 |
+| [`app/tools/`](app/tools/) | 工具注册、内置工具、浏览器、桌面和 MCP 接入 |
+| [`app/memory/`](app/memory/) | SQLite 仓库、FTS5、embedding、混合检索与摘要 |
+| [`app/chat_records/`](app/chat_records/) | 聊天导入、存储、分析、报告与页面 |
+| [`app/tasks/`](app/tasks/) · [`app/evals/`](app/evals/) | 持久化调度与回归评测 |
+| [`skills/`](skills/) · [`scripts/`](scripts/) · [`tests/`](tests/) | 示例技能、辅助脚本与自动化测试 |
+
+想快速体验：先按下一节启动服务，再查看 [DEMO.md](DEMO.md)。需要 AI 模型时看[模型配置](#模型配置)；想使用聊天分析时看[聊天记录分析与周月年报](#聊天记录分析与周月年报v12)。
 
 ## 环境
 
@@ -16,7 +61,7 @@ Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime �
 - 本地 MCP 示例只需要 Python；其他 MCP server 可能需要 Node.js。
 - AgentScope 1.x 可选。它与 Python 3.10 和 MCP 1.x 兼容；AgentScope 2.x 需要 Python 3.11+，不在当前锁定组合中。
 
-## 一分钟启动
+## 快速启动：无 API Key 演示
 
 ```powershell
 python -m venv .venv
@@ -24,13 +69,14 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m playwright install chromium
 Copy-Item .env.example .env
+$env:LITECLAW_MODEL_PROVIDER='fake'
 python scripts/init_db.py
 python -m liteclaw
 ```
 
-macOS/Linux 把激活命令改成 `source .venv/bin/activate`，复制配置用 `cp .env.example .env`。也可用 `uvicorn app.main:app --reload` 启动。访问 `http://127.0.0.1:8000/health` 应返回 `status=ok` 与 `database=ready`。
+macOS/Linux 把激活命令改成 `source .venv/bin/activate`，复制配置用 `cp .env.example .env`，环境变量改为 `export LITECLAW_MODEL_PROVIDER=fake`。也可用 `uvicorn app.main:app --reload` 启动。访问 `http://127.0.0.1:8000/health` 应返回 `status=ok` 与 `database=ready`。
 
-无 API Key 时，把 `.env` 中 `LITECLAW_MODEL_PROVIDER` 改成 `fake`。FakeModel 可稳定展示 calculator 的“模型发出工具调用 → 工具返回观察结果 → 模型形成答案”闭环，也能演示明确要求保存的记忆。它不是通用语言模型。
+FakeModel 可稳定展示 calculator 的“模型发出工具调用 → 工具返回观察结果 → 模型形成答案”闭环，也能演示明确要求保存的记忆。要换用真实 AI，请清除上面的临时环境变量覆盖，并按[模型配置](#模型配置)填写 `.env`；不要把密钥提交到 Git。
 
 ## 服务鉴权与 Docker 部署（v0.4）
 
