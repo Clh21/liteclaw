@@ -151,6 +151,37 @@ def test_analysis_and_period_report_are_evidence_based(tmp_path):
         assert report.json()["completed_items"][0]["evidence_ids"]
 
 
+def test_analysis_inclusive_local_date_range_and_conflicts(tmp_path):
+    with TestClient(app_for(tmp_path)) as client:
+        source = upload(client).json()
+        scoped = client.post(
+            "/v1/chat-records/analyze",
+            json={
+                "source_id": source["id"],
+                "start_date": "2026-10-01",
+                "end_date": "2026-10-02",
+                "timezone": "Asia/Shanghai",
+            },
+        )
+        assert scoped.status_code == 200
+        assert scoped.json()["message_count"] == 2
+        assert scoped.json()["coverage"]["first_at"] == "2026-10-01T01:30:00+00:00"
+        assert (
+            client.post(
+                "/v1/chat-records/analyze",
+                json={"start_date": "2026-10-02", "end_date": "2026-10-01"},
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/v1/chat-records/analyze",
+                json={"start_date": "2026-10-01", "start_at": "2026-10-01T00:00:00Z"},
+            ).status_code
+            == 422
+        )
+
+
 def test_analysis_cannot_access_other_users_source(tmp_path):
     with TestClient(app_for(tmp_path, rbac=True)) as client:
         admin = {"Authorization": "Bearer admin-key"}
@@ -189,5 +220,11 @@ def test_chat_records_page_has_import_and_report_controls(tmp_path):
             'id="analyze"',
             'id="report"',
             'id="token"',
+            'id="messages"',
+            'id="previous"',
+            'id="next"',
+            'id="start-date"',
+            'id="end-date"',
+            'id="download"',
         ):
             assert marker in response.text

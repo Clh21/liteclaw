@@ -216,7 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await pgvector.close()
             tracing.shutdown()
 
-    application = FastAPI(title="LiteClaw", version="1.2.0", lifespan=lifespan)
+    application = FastAPI(title="LiteClaw", version="1.3.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.chat_record_repository = chat_record_repository

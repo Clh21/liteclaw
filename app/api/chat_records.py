@@ -1,9 +1,9 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from datetime import timezone as utc_timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from app.api.access import owner_scope, resolve_creation_owner
@@ -14,6 +14,7 @@ from app.chat_records.analysis import (
     period_bounds,
 )
 from app.chat_records.parser import MAX_BYTES, ImportFormatError, parse_chat_export
+from app.chat_records.report import report_to_markdown
 
 router = APIRouter(prefix="/v1/chat-records", tags=["chat-records"])
 
@@ -24,6 +25,8 @@ class AnalyzeRequest(BaseModel):
     contact: str | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     timezone: str = "Asia/Shanghai"
 
 
@@ -48,6 +51,35 @@ def _utc(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         raise HTTPException(422, detail={"code": "timezone_required"})
     return value.astimezone(utc_timezone.utc).isoformat()
+
+
+def _analysis_bounds(body: AnalyzeRequest) -> tuple[str | None, str | None]:
+    zone = _zone(body.timezone)
+    if (body.start_date or body.end_date) and (body.start_at or body.end_at):
+        raise HTTPException(422, detail={"code": "time_filter_conflict"})
+    if body.start_date and body.end_date and body.start_date > body.end_date:
+        raise HTTPException(422, detail={"code": "time_range_invalid"})
+    if body.start_date or body.end_date:
+        try:
+            start = (
+                _utc(datetime.combine(body.start_date, time.min, zone))
+                if body.start_date
+                else None
+            )
+            end = (
+                _utc(
+                    datetime.combine(body.end_date + timedelta(days=1), time.min, zone)
+                )
+                if body.end_date
+                else None
+            )
+        except OverflowError as error:
+            raise HTTPException(422, detail={"code": "time_range_invalid"}) from error
+    else:
+        start, end = _utc(body.start_at), _utc(body.end_at)
+    if start and end and start >= end:
+        raise HTTPException(422, detail={"code": "time_range_invalid"})
+    return start, end
 
 
 async def _analysis_rows(
@@ -150,10 +182,7 @@ async def delete_chat_source(source_id: str, request: Request):
 
 @router.post("/analyze")
 async def analyze_chat_records(body: AnalyzeRequest, request: Request):
-    _zone(body.timezone)
-    start_at, end_at = _utc(body.start_at), _utc(body.end_at)
-    if start_at and end_at and start_at >= end_at:
-        raise HTTPException(422, detail={"code": "time_range_invalid"})
+    start_at, end_at = _analysis_bounds(body)
     rows = await _analysis_rows(
         request, body.source_id, body.conversation, start_at, end_at
     )
@@ -168,8 +197,7 @@ async def analyze_chat_records(body: AnalyzeRequest, request: Request):
     return attach_evidence(result, rows)
 
 
-@router.post("/reports")
-async def create_chat_report(body: ReportRequest, request: Request):
+async def _build_report(body: ReportRequest, request: Request) -> dict:
     try:
         start_at, end_at = period_bounds(body.period, body.anchor_date, body.timezone)
     except (ZoneInfoNotFoundError, ValueError) as error:
@@ -185,6 +213,7 @@ async def create_chat_report(body: ReportRequest, request: Request):
     result.update(
         {
             "period": body.period,
+            "timezone": body.timezone,
             "period_start": start_at,
             "period_end": end_at,
             "summary": (
@@ -195,3 +224,18 @@ async def create_chat_report(body: ReportRequest, request: Request):
         }
     )
     return result
+
+
+@router.post("/reports")
+async def create_chat_report(body: ReportRequest, request: Request):
+    return await _build_report(body, request)
+
+
+@router.post("/reports/markdown")
+async def download_chat_report(body: ReportRequest, request: Request):
+    report = await _build_report(body, request)
+    return Response(
+        report_to_markdown(report),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="liteclaw-report.md"'},
+    )

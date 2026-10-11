@@ -1,6 +1,6 @@
 # LiteClaw
 
-LiteClaw v1.2.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务、评测和聊天记录分析接口。服务支持多用户 API Token、RBAC 与用户数据隔离、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
+LiteClaw v1.3.0 是一个个人 AI Agent Runtime。它维护自己的有界 Agent Loop、Tool Registry、Context Builder、混合记忆检索和持久化任务调度器；FastAPI 对外提供会话、对话、SSE 实时事件、记忆、审批、任务、评测和聊天记录分析接口。服务支持多用户 API Token、RBAC 与用户数据隔离、加密浏览器登录态、Eval 仪表盘、可选 pgvector 记忆索引、OpenTelemetry 追踪、OpenAI 兼容模型自检、受控桌面工具和 Docker Compose 部署。AgentScope 仅作为可选模型适配层，核心循环不依赖框架内部执行逻辑。
 
 ```text
 Client → FastAPI → Session / SQLite → Context Builder → Agent Runtime → Model Adapter
@@ -98,6 +98,12 @@ Invoke-RestMethod -Headers $headers -Method Post -Uri http://127.0.0.1:8000/v1/c
 ```
 
 同一文件再次上传会返回已有来源；多个来源重叠的消息在汇总时只计一次。启用 RBAC 后普通用户只能访问自己的来源，管理员可跨用户查看；`viewer` 不能导入或删除。自动识别的待办只是线索，`needs_confirmation` 表示未从记录中确认完成，使用前应核对原聊天。
+
+### 聊天记录工作台（v1.3）
+
+`/chat-records` 现在可以按来源分页浏览消息，每页 50 条。分析表单可填写开始和结束日期，结束日期包含当天，日期边界按照表单中的 IANA 时区计算。日期筛选用于“分析聊天”；周期报告仍按报告日期和周、月、年选择生成。生成报告后可点击“下载 Markdown”，文件包含本人完成事项、待核实事项、沟通观察和引用的原聊天。下载会重新运行报告分析；配置外部模型时，这会再次调用模型。
+
+API 可传 `start_date`、`end_date` 给 `POST /v1/chat-records/analyze`，例如 `{"start_date":"2026-10-01","end_date":"2026-10-07","timezone":"Asia/Shanghai"}`。日期字段不能和旧版 `start_at`/`end_at` 混用。`POST /v1/chat-records/reports/markdown` 使用与 `/reports` 相同的 JSON 请求体，返回 `text/markdown` 附件，权限规则相同。
 
 ## 浏览器登录态持久化（v0.5）
 
@@ -279,6 +285,6 @@ python scripts/benchmark.py
 
 真实模型验证需要用户自己配置有效 API Key。浏览器 demo 需要 Chromium 和网络；其余核心测试不访问公网。详细的五分钟演示见 `DEMO.md`。
 
-当前 v1.2.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC、跨用户资源隔离与 Token 撤销、聊天记录导入、分析与周期报告、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
+当前 v1.3.0 验收覆盖同步调用、真实 HTTP SSE 事件流、工具调用、审批边界、持久化任务、服务鉴权、RBAC、跨用户资源隔离与 Token 撤销、聊天记录导入、分页浏览、日期分析与周期报告下载、加密浏览器状态、Eval 回归、pgvector 降级、OpenTelemetry span 层级、结构化输出兼容性、桌面工具适配层和部署文件。由于 Docker Desktop 引擎未启动，只验证 Compose 配置；由于本机没有 PostgreSQL 和 OTLP collector，外部服务集成使用适配层和降级测试验证。
 
 完整测试数量以当前 `pytest -q` 输出为准。不安装可选 sqlite-vec 扩展时会跳过其原生扩展测试，Python 余弦降级路径仍会执行。
